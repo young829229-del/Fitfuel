@@ -36,7 +36,8 @@ import {
   Eye,
   CheckCircle2,
   Clock,
-  Truck
+  Truck,
+  QrCode
 } from 'lucide-react';
 
 type AdminTab = 'products' | 'orders' | 'banners' | 'categories' | 'coupons' | 'reviews' | 'settings' | 'customers';
@@ -79,7 +80,9 @@ export default function AdminDashboard() {
   const mainPhotoInputRef = useRef<HTMLInputElement>(null);
   const additionalPhotoInputRef = useRef<HTMLInputElement>(null);
   const bannerPhotoInputRef = useRef<HTMLInputElement>(null);
+  const paymentQRInputRef = useRef<HTMLInputElement>(null);
   const [isProcessingPhoto, setIsProcessingPhoto] = useState(false);
+  const [activePaymentMethodId, setActivePaymentMethodId] = useState<string | null>(null);
   const [photoError, setPhotoError] = useState<string | null>(null);
 
   // Authentication State
@@ -114,9 +117,9 @@ export default function AdminDashboard() {
   const [formData, setFormData] = useState({
     name: '',
     slug: '',
-    price: 24.99,
-    originalPrice: 29.99,
-    stockQuantity: 25,
+    price: 1250,
+    originalPrice: 1500,
+    stockQuantity: 50,
     image: '',
     images: [] as string[],
     description: '',
@@ -154,19 +157,21 @@ export default function AdminDashboard() {
   });
 
   const [settingsFormData, setSettingsFormData] = useState({
-    deliveryCharge: settings.deliveryCharge || 4.99,
-    freeDeliveryThreshold: settings.freeDeliveryThreshold || 50,
+    deliveryCharge: settings.deliveryCharge || 120,
+    freeDeliveryThreshold: settings.freeDeliveryThreshold || 2000,
     phone: settings.phone || '+977-9800000000',
-    email: settings.email || 'contact@fitfulnepal.com'
+    email: settings.email || 'contact@fitfulnepal.com',
+    paymentMethods: settings.paymentMethods || []
   });
 
   // Sync settings when changed from Firebase
   useEffect(() => {
     setSettingsFormData({
-      deliveryCharge: settings.deliveryCharge || 4.99,
-      freeDeliveryThreshold: settings.freeDeliveryThreshold || 50,
+      deliveryCharge: settings.deliveryCharge || 120,
+      freeDeliveryThreshold: settings.freeDeliveryThreshold || 2000,
       phone: settings.phone || '+977-9800000000',
-      email: settings.email || 'contact@fitfulnepal.com'
+      email: settings.email || 'contact@fitfulnepal.com',
+      paymentMethods: settings.paymentMethods || []
     });
   }, [settings]);
 
@@ -262,6 +267,29 @@ export default function AdminDashboard() {
     }
   };
 
+  const handlePaymentQRSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !activePaymentMethodId) return;
+    setIsProcessingPhoto(true);
+    try {
+      const optimized = await processGalleryPhoto(file, 800, 0.85);
+      const storageUrl = await uploadImageToStorage(optimized, 'payments');
+      
+      const updatedMethods = settingsFormData.paymentMethods.map(m => 
+        m.id === activePaymentMethodId ? { ...m, qrImage: storageUrl } : m
+      );
+      
+      setSettingsFormData(prev => ({ ...prev, paymentMethods: updatedMethods }));
+      showToast('Payment QR code updated.');
+    } catch {
+      showToast('Error uploading QR code.');
+    } finally {
+      setIsProcessingPhoto(false);
+      if (paymentQRInputRef.current) paymentQRInputRef.current.value = '';
+      setActivePaymentMethodId(null);
+    }
+  };
+
   // Auth Handlers
   const handleSimpleLogin = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -314,9 +342,9 @@ export default function AdminDashboard() {
     setFormData({
       name: '',
       slug: '',
-      price: 24.99,
-      originalPrice: 29.99,
-      stockQuantity: 25,
+      price: 1250,
+      originalPrice: 1500,
+      stockQuantity: 50,
       image: '',
       images: [],
       description: 'Ultra-pure premium supplement formulated for high-performance athletic lifestyle.',
@@ -455,9 +483,10 @@ export default function AdminDashboard() {
       deliveryCharge: Number(settingsFormData.deliveryCharge),
       freeDeliveryThreshold: Number(settingsFormData.freeDeliveryThreshold),
       phone: settingsFormData.phone.trim(),
-      email: settingsFormData.email.trim()
+      email: settingsFormData.email.trim(),
+      paymentMethods: settingsFormData.paymentMethods
     });
-    showToast('Settings & Announcement updated across live website.');
+    showToast('Settings & Payment Methods updated.');
   };
 
   // Confirm delete dispatcher
@@ -560,6 +589,7 @@ export default function AdminDashboard() {
       <input ref={mainPhotoInputRef} type="file" accept="image/*" onChange={handleMainPhotoSelect} className="hidden" />
       <input ref={additionalPhotoInputRef} type="file" accept="image/*" multiple onChange={handleAdditionalPhotosSelect} className="hidden" />
       <input ref={bannerPhotoInputRef} type="file" accept="image/*" onChange={handleBannerPhotoSelect} className="hidden" />
+      <input ref={paymentQRInputRef} type="file" accept="image/*" onChange={handlePaymentQRSelect} className="hidden" />
 
       {/* Toast Notification */}
       {successToast && (
@@ -847,9 +877,22 @@ export default function AdminDashboard() {
                           Rs. {order.totalAmount.toFixed(0)}
                         </td>
                         <td className="py-3 px-4">
-                          <span className="text-[11px] bg-gray-100 px-2 py-0.5 rounded-md font-semibold">
-                            {order.paymentMethod}
-                          </span>
+                          <div className="flex flex-col gap-1">
+                            <span className="text-[11px] bg-gray-100 px-2 py-0.5 rounded-md font-semibold">
+                              {order.paymentMethod}
+                            </span>
+                            {order.paymentScreenshot && (
+                              <a 
+                                href={formatImageUrl(order.paymentScreenshot)} 
+                                target="_blank" 
+                                rel="noreferrer"
+                                className="text-[10px] text-blue-600 font-bold hover:underline flex items-center gap-1"
+                              >
+                                <ImageIcon className="w-3 h-3" />
+                                <span>View SS</span>
+                              </a>
+                            )}
+                          </div>
                         </td>
                         <td className="py-3 px-4">
                           <select
@@ -1219,10 +1262,98 @@ export default function AdminDashboard() {
 
               <button
                 type="submit"
-                className="px-6 py-3 bg-black hover:bg-neutral-800 text-white font-bold rounded-2xl shadow-md transition active:scale-95"
+                className="w-full py-3.5 bg-black hover:bg-neutral-800 text-white font-bold rounded-2xl shadow-md transition active:scale-95 text-xs uppercase tracking-wider"
               >
-                Save Settings in Firebase
+                Save All Settings in Firebase
               </button>
+
+              {/* Payment Methods Management */}
+              <div className="pt-8 border-t border-gray-100 space-y-6">
+                <div>
+                  <h3 className="text-sm font-black text-black">Payment Gateways</h3>
+                  <p className="text-[11px] text-gray-500">Configure Esewa, Khalti, or Bank QR codes.</p>
+                </div>
+
+                <div className="space-y-4">
+                  {settingsFormData.paymentMethods.map((method, idx) => (
+                    <div key={method.id} className="p-4 bg-gray-50 rounded-3xl border border-gray-200 space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${method.enabled ? 'bg-black text-white' : 'bg-gray-200 text-gray-400'}`}>
+                            {method.type === 'qr' ? <QrCode className="w-5 h-5" /> : <Truck className="w-5 h-5" />}
+                          </div>
+                          <div>
+                            <input
+                              type="text"
+                              value={method.name}
+                              onChange={(e) => {
+                                const newMethods = [...settingsFormData.paymentMethods];
+                                newMethods[idx] = { ...method, name: e.target.value };
+                                setSettingsFormData(prev => ({ ...prev, paymentMethods: newMethods }));
+                              }}
+                              className="font-bold text-sm bg-transparent border-b border-transparent hover:border-gray-300 focus:border-black focus:outline-hidden px-1"
+                            />
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const newMethods = [...settingsFormData.paymentMethods];
+                            newMethods[idx] = { ...method, enabled: !method.enabled };
+                            setSettingsFormData(prev => ({ ...prev, paymentMethods: newMethods }));
+                          }}
+                          className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider transition ${
+                            method.enabled ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-200 text-gray-500'
+                          }`}
+                        >
+                          {method.enabled ? 'Enabled' : 'Disabled'}
+                        </button>
+                      </div>
+
+                      {method.type === 'qr' && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+                          <div className="space-y-2">
+                            <label className="text-[10px] font-bold uppercase text-gray-500">Instructions</label>
+                            <textarea
+                              rows={2}
+                              value={method.instructions || ''}
+                              onChange={(e) => {
+                                const newMethods = [...settingsFormData.paymentMethods];
+                                newMethods[idx] = { ...method, instructions: e.target.value };
+                                setSettingsFormData(prev => ({ ...prev, paymentMethods: newMethods }));
+                              }}
+                              placeholder="e.g. Scan QR to pay"
+                              className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl text-xs focus:ring-1 focus:ring-black focus:outline-hidden"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <label className="text-[10px] font-bold uppercase text-gray-500">QR Image (Gallery Only)</label>
+                            <div className="flex items-center gap-3">
+                              <div className="w-16 h-16 bg-white rounded-xl border border-gray-200 p-1 flex items-center justify-center shrink-0 overflow-hidden">
+                                {method.qrImage ? (
+                                  <img src={formatImageUrl(method.qrImage)} alt="QR" className="max-h-full max-w-full object-contain" />
+                                ) : (
+                                  <QrCode className="w-6 h-6 text-gray-300" />
+                                )}
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setActivePaymentMethodId(method.id);
+                                  paymentQRInputRef.current?.click();
+                                }}
+                                className="px-3 py-1.5 bg-white border border-gray-300 hover:bg-gray-100 rounded-xl text-[10px] font-bold transition"
+                              >
+                                Upload QR
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
             </form>
           </div>
         )}

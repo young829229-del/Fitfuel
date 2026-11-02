@@ -31,7 +31,6 @@ export interface Order {
   id: string;
   orderNumber: string;
   customerName: string;
-  customerEmail: string;
   customerPhone: string;
   shippingAddress: string;
   city?: string;
@@ -42,7 +41,8 @@ export interface Order {
   discountAmount: number;
   totalAmount: number;
   couponCode?: string;
-  paymentMethod: string; // 'Cash on Delivery (COD)' | 'Esewa / Khalti' | 'Bank Transfer'
+  paymentMethod: string;
+  paymentScreenshot?: string;
   paymentStatus: 'Pending' | 'Paid' | 'Failed';
   orderStatus: 'Pending' | 'Processing' | 'Shipped' | 'Delivered' | 'Cancelled';
   createdAt: string;
@@ -108,6 +108,15 @@ export interface Coupon {
   createdAt: string;
 }
 
+export interface PaymentMethod {
+  id: string;
+  name: string;
+  type: 'qr' | 'cod';
+  qrImage?: string;
+  enabled: boolean;
+  instructions?: string;
+}
+
 export interface StoreSettings {
   id: string;
   storeName: string;
@@ -117,7 +126,7 @@ export interface StoreSettings {
   address: string;
   deliveryCharge: number;
   freeDeliveryThreshold: number;
-  codEnabled: boolean;
+  paymentMethods: PaymentMethod[];
   updatedAt: string;
 }
 

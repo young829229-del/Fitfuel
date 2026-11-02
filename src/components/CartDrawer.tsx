@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useCart } from '../context/CartContext';
 import { useStore } from '../context/StoreContext';
 import { formatImageUrl } from '../utils/imageUrl';
+import { uploadImageToStorage } from '../lib/storage';
 import { 
   X, 
   Trash2, 
@@ -11,7 +12,10 @@ import {
   Check, 
   AlertCircle,
   Truck,
-  CheckCircle2
+  CheckCircle2,
+  QrCode,
+  Image as ImageIcon,
+  Loader2
 } from 'lucide-react';
 
 export default function CartDrawer() {
@@ -43,12 +47,15 @@ export default function CartDrawer() {
   const [formData, setFormData] = useState({
     name: '',
     phone: '',
-    email: '',
     address: '',
     city: 'Kathmandu',
     notes: '',
-    paymentMethod: 'Cash on Delivery (COD)'
+    paymentMethodId: '' // Track the selected method ID
   });
+  
+  const [screenshotFile, setScreenshotFile] = useState<File | null>(null);
+  const [screenshotPreview, setScreenshotPreview] = useState<string | null>(null);
+  const screenshotInputRef = useRef<HTMLInputElement>(null);
   const [formError, setFormError] = useState<string | null>(null);
 
   if (!isCartOpen) return null;
@@ -61,6 +68,18 @@ export default function CartDrawer() {
     }
   };
 
+  const selectedMethod = settings.paymentMethods?.find(m => m.id === formData.paymentMethodId) || settings.paymentMethods?.find(m => m.enabled);
+
+  const handleScreenshotChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setScreenshotFile(file);
+      const reader = new FileReader();
+      reader.onload = (e) => setScreenshotPreview(e.target?.result as string);
+      reader.readAsDataURL(file);
+    }
+  };
+
   const handleOrderSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError(null);
@@ -70,20 +89,37 @@ export default function CartDrawer() {
       return;
     }
 
+    if (!formData.paymentMethodId) {
+      setFormError('Please select a payment method.');
+      return;
+    }
+
+    if (selectedMethod?.type === 'qr' && !screenshotFile) {
+      setFormError('Please upload a screenshot of your payment.');
+      return;
+    }
+
     setIsSubmitting(true);
     try {
+      let paymentScreenshot = '';
+      if (screenshotFile) {
+        paymentScreenshot = await uploadImageToStorage(screenshotFile, 'payments');
+      }
+
       const orderNumber = await placeOrder({
         customerName: formData.name.trim(),
         customerPhone: formData.phone.trim(),
-        customerEmail: formData.email.trim(),
         shippingAddress: `${formData.address.trim()}, ${formData.city}`,
         city: formData.city,
         notes: formData.notes.trim(),
-        paymentMethod: formData.paymentMethod
+        paymentMethod: selectedMethod?.name || 'Unknown',
+        paymentScreenshot
       });
 
       setConfirmedOrderId(orderNumber);
       setIsCheckingOut(false);
+      setScreenshotFile(null);
+      setScreenshotPreview(null);
     } catch (err: any) {
       setFormError(err.message || 'Failed to place order. Please try again.');
     } finally {
@@ -189,7 +225,7 @@ export default function CartDrawer() {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3">
                 <div>
                   <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">Phone Number *</label>
                   <input
@@ -198,17 +234,6 @@ export default function CartDrawer() {
                     placeholder="98XXXXXXXX"
                     value={formData.phone}
                     onChange={(e) => setFormData(prev => ({ ...prev, phone: e.target.value }))}
-                    className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-black"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">Email</label>
-                  <input
-                    type="email"
-                    placeholder="name@email.com"
-                    value={formData.email}
-                    onChange={(e) => setFormData(prev => ({ ...prev, email: e.target.value }))}
                     className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-black"
                   />
                 </div>
@@ -242,32 +267,83 @@ export default function CartDrawer() {
               </div>
 
               <div>
-                <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">Payment Method</label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setFormData(prev => ({ ...prev, paymentMethod: 'Cash on Delivery (COD)' }))}
-                    className={`py-2.5 px-3 rounded-xl border text-xs font-bold transition text-left ${
-                      formData.paymentMethod === 'Cash on Delivery (COD)'
-                        ? 'border-black bg-black text-white'
-                        : 'border-gray-200 text-gray-700 hover:bg-gray-50'
-                    }`}
-                  >
-                    Cash on Delivery
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setFormData(prev => ({ ...prev, paymentMethod: 'Esewa / Khalti' }))}
-                    className={`py-2.5 px-3 rounded-xl border text-xs font-bold transition text-left ${
-                      formData.paymentMethod === 'Esewa / Khalti'
-                        ? 'border-black bg-black text-white'
-                        : 'border-gray-200 text-gray-700 hover:bg-gray-50'
-                    }`}
-                  >
-                    Esewa / Khalti
-                  </button>
+                <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">Payment Method *</label>
+                <div className="grid grid-cols-1 gap-2">
+                  {settings.paymentMethods?.filter(m => m.enabled).map(method => (
+                    <button
+                      key={method.id}
+                      type="button"
+                      onClick={() => setFormData(prev => ({ ...prev, paymentMethodId: method.id }))}
+                      className={`py-3 px-4 rounded-2xl border text-xs font-bold transition flex items-center justify-between ${
+                        formData.paymentMethodId === method.id
+                          ? 'border-black bg-black text-white'
+                          : 'border-gray-200 text-gray-700 hover:bg-gray-50'
+                      }`}
+                    >
+                      <span className="flex items-center gap-2">
+                        {method.type === 'qr' ? <QrCode className="w-4 h-4" /> : <Truck className="w-4 h-4" />}
+                        {method.name}
+                      </span>
+                      {formData.paymentMethodId === method.id && <Check className="w-4 h-4 text-emerald-400" />}
+                    </button>
+                  ))}
                 </div>
               </div>
+
+              {selectedMethod?.type === 'qr' && (
+                <div className="p-5 bg-gray-50 rounded-3xl border border-gray-200 space-y-4 animate-in fade-in slide-in-from-top-2">
+                  <div className="text-center space-y-3">
+                    <p className="text-[10px] font-black uppercase text-gray-500 tracking-wider">
+                      {selectedMethod.instructions || `Scan QR to Pay via ${selectedMethod.name}`}
+                    </p>
+                    {selectedMethod.qrImage ? (
+                      <div className="bg-white p-3 rounded-2xl border border-gray-200 inline-block shadow-sm">
+                        <img 
+                          src={formatImageUrl(selectedMethod.qrImage)} 
+                          alt={`${selectedMethod.name} QR`} 
+                          className="w-44 h-44 object-contain mx-auto" 
+                        />
+                      </div>
+                    ) : (
+                      <div className="w-44 h-44 bg-gray-200 rounded-2xl flex items-center justify-center mx-auto text-gray-400">
+                        <QrCode className="w-10 h-10" />
+                      </div>
+                    )}
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <label className="block text-[11px] font-bold uppercase text-gray-600">Drop your payment screenshot (SS) *</label>
+                    <div 
+                      onClick={() => screenshotInputRef.current?.click()}
+                      className={`border-2 border-dashed rounded-2xl p-4 flex flex-col items-center justify-center cursor-pointer transition ${
+                        screenshotPreview ? 'border-emerald-500 bg-emerald-50/30' : 'border-gray-300 bg-white hover:bg-gray-50'
+                      }`}
+                    >
+                      <input 
+                        ref={screenshotInputRef}
+                        type="file" 
+                        accept="image/*" 
+                        className="hidden" 
+                        onChange={handleScreenshotChange}
+                      />
+                      {screenshotPreview ? (
+                        <div className="relative w-full text-center">
+                          <img src={screenshotPreview} alt="Screenshot preview" className="h-32 object-contain mx-auto rounded-lg shadow-sm" />
+                          <div className="mt-2 flex items-center justify-center gap-1.5 text-[10px] text-emerald-600 font-bold">
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            <span>Screenshot Attached</span>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="text-center py-1">
+                          <ImageIcon className="w-6 h-6 text-gray-400 mx-auto mb-1.5" />
+                          <p className="text-[10px] text-gray-500 font-bold uppercase tracking-tight">Tap to Upload Payment SS</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <div>
                 <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">Delivery Notes (Optional)</label>

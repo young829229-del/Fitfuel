@@ -29,12 +29,12 @@ interface CartContextType {
   removeCoupon: () => void;
   placeOrder: (customerDetails: {
     customerName: string;
-    customerEmail: string;
     customerPhone: string;
     shippingAddress: string;
     city?: string;
     notes?: string;
     paymentMethod?: string;
+    paymentScreenshot?: string;
   }) => Promise<string>;
 }
 
@@ -156,16 +156,15 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const placeOrder = async (customerDetails: {
     customerName: string;
-    customerEmail: string;
     customerPhone: string;
     shippingAddress: string;
     city?: string;
     notes?: string;
     paymentMethod?: string;
+    paymentScreenshot?: string;
   }): Promise<string> => {
     const orderNumber = await createOrder({
       customerName: customerDetails.customerName,
-      customerEmail: customerDetails.customerEmail,
       customerPhone: customerDetails.customerPhone,
       shippingAddress: customerDetails.shippingAddress,
       city: customerDetails.city || '',
@@ -184,6 +183,7 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
       totalAmount: totalPrice,
       couponCode: appliedCoupon || undefined,
       paymentMethod: customerDetails.paymentMethod || 'Cash on Delivery (COD)',
+      paymentScreenshot: customerDetails.paymentScreenshot,
       paymentStatus: 'Pending',
       orderStatus: 'Pending'
     });

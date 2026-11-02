@@ -66,18 +66,6 @@ export default function ProductHero() {
       </button>
 
 
-      {/* Active Promotional Banner Badge */}
-      {activeBanner && (
-        <div className="absolute bottom-6 left-6 z-20 hidden md:flex items-center gap-2.5 bg-neutral-900/90 text-white p-3 rounded-2xl max-w-sm border border-neutral-700 shadow-xl backdrop-blur-md">
-          <div className="w-10 h-10 rounded-xl bg-white/10 p-1 flex items-center justify-center shrink-0">
-            <Sparkles className="w-5 h-5 text-amber-400" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <h4 className="text-xs font-bold truncate text-white">{activeBanner.title}</h4>
-            <p className="text-[10px] text-gray-300 line-clamp-1">{activeBanner.subtitle}</p>
-          </div>
-        </div>
-      )}
       
       {/* 3D Interactive Carousel */}
       <motion.div

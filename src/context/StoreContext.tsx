@@ -31,7 +31,11 @@ const defaultSettings: StoreSettings = {
   address: 'Kathmandu, Nepal',
   deliveryCharge: 120,
   freeDeliveryThreshold: 2000,
-  codEnabled: true,
+  paymentMethods: [
+    { id: 'cod', name: 'Cash on Delivery', type: 'cod', enabled: true },
+    { id: 'esewa', name: 'Esewa', type: 'qr', enabled: true, instructions: 'Scan QR to pay via Esewa' },
+    { id: 'khalti', name: 'Khalti', type: 'qr', enabled: true, instructions: 'Scan QR to pay via Khalti' }
+  ],
   updatedAt: new Date().toISOString()
 };
 
@@ -297,7 +301,6 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             id: d.id,
             orderNumber: data.orderNumber || d.id,
             customerName: data.customerName || 'Anonymous',
-            customerEmail: data.customerEmail || '',
             customerPhone: data.customerPhone || '',
             shippingAddress: data.shippingAddress || '',
             city: data.city || '',
@@ -388,7 +391,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             address: data.address || defaultSettings.address,
             deliveryCharge: typeof data.deliveryCharge === 'number' ? data.deliveryCharge : defaultSettings.deliveryCharge,
             freeDeliveryThreshold: typeof data.freeDeliveryThreshold === 'number' ? data.freeDeliveryThreshold : defaultSettings.freeDeliveryThreshold,
-            codEnabled: data.codEnabled !== false,
+            paymentMethods: Array.isArray(data.paymentMethods) ? data.paymentMethods : defaultSettings.paymentMethods,
             updatedAt: data.updatedAt || new Date().toISOString()
           });
         } else {
@@ -635,7 +638,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const customerPayload: Customer = {
         id: customerId,
         name: newOrder.customerName,
-        email: newOrder.customerEmail,
+        email: '', // Email removed from checkout
         phone: newOrder.customerPhone,
         address: newOrder.shippingAddress,
         totalOrders: (existingCustomer?.totalOrders || 0) + 1,
