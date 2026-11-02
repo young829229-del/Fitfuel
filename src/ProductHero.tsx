@@ -1,18 +1,24 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useNavigate } from 'react-router-dom';
-import { useProducts } from './context/ProductContext';
+import { useStore } from './context/StoreContext';
+import { useCart } from './context/CartContext';
 import { formatImageUrl } from './utils/imageUrl';
+import CartDrawer from './components/CartDrawer';
+import { ShoppingBag, Sparkles, ChevronRight } from 'lucide-react';
 
 export default function ProductHero() {
-  const { products } = useProducts();
+  const { products, settings, banners } = useStore();
+  const { totalCount, setIsCartOpen } = useCart();
   const [currentIndex, setCurrentIndex] = useState(0);
   const scrollTimeout = useRef<NodeJS.Timeout | null>(null);
   const navigate = useNavigate();
 
+  const displayList = products;
+
   const handleNavigation = (direction: number) => {
-    if (products.length === 0) return;
-    setCurrentIndex((prev) => (prev + direction + products.length) % products.length);
+    if (displayList.length === 0) return;
+    setCurrentIndex((prev) => (prev + direction + displayList.length) % displayList.length);
   };
 
   const handleWheel = (e: React.WheelEvent) => {
@@ -31,24 +37,51 @@ export default function ProductHero() {
     }, 500);
   };
 
+  const activeBanner = banners.find(b => b.active);
+
   return (
-    <div className="relative w-full h-screen flex flex-col items-center justify-center bg-white overflow-hidden pt-24" onWheel={handleWheel}>
+    <div className="relative w-full h-screen flex flex-col items-center justify-center bg-white overflow-hidden" onWheel={handleWheel}>
       {/* Brand Logo */}
       <img 
         src="/assets/aistudio/tiktok_video_dt6Np_d66a1b63.jpeg" 
         alt="FitFul Nepal Logo" 
-        className="absolute top-4 left-1/2 -translate-x-1/2 w-12 md:w-16 z-20 rounded-full border border-gray-200 shadow-md" 
+        className="absolute top-4 left-1/2 -translate-x-1/2 w-12 md:w-16 z-20 rounded-full border border-gray-200 shadow-md cursor-pointer"
+        onClick={() => navigate('/')}
       />
 
-      {/* Cart Button */}
-      <button className="absolute top-6 right-6 z-20 p-2 bg-gray-100 rounded-full hover:bg-gray-200 transition">
-        <svg xmlns="http://www.w3.org/2000/svg" className="w-6 h-6 text-gray-800" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
-        </svg>
+      {/* Cart Button with Live Total Count */}
+      <button 
+        onClick={() => setIsCartOpen(true)}
+        className="absolute top-6 right-6 z-20 p-2.5 bg-gray-100 hover:bg-black hover:text-white rounded-full transition shadow-xs group"
+        title="Open Cart"
+      >
+        <div className="relative">
+          <ShoppingBag className="w-5 h-5" />
+          {totalCount > 0 && (
+            <span className="absolute -top-1.5 -right-2 bg-red-600 text-white text-[10px] font-black rounded-full h-4 w-4 flex items-center justify-center">
+              {totalCount}
+            </span>
+          )}
+        </div>
       </button>
+
+
+      {/* Active Promotional Banner Badge */}
+      {activeBanner && (
+        <div className="absolute bottom-6 left-6 z-20 hidden md:flex items-center gap-2.5 bg-neutral-900/90 text-white p-3 rounded-2xl max-w-sm border border-neutral-700 shadow-xl backdrop-blur-md">
+          <div className="w-10 h-10 rounded-xl bg-white/10 p-1 flex items-center justify-center shrink-0">
+            <Sparkles className="w-5 h-5 text-amber-400" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h4 className="text-xs font-bold truncate text-white">{activeBanner.title}</h4>
+            <p className="text-[10px] text-gray-300 line-clamp-1">{activeBanner.subtitle}</p>
+          </div>
+        </div>
+      )}
       
+      {/* 3D Interactive Carousel */}
       <motion.div
-        className="flex items-center justify-center w-full h-full cursor-grab"
+        className="flex items-center justify-center w-full h-full cursor-grab pt-12"
         style={{ perspective: 1000 }}
         drag="x"
         dragConstraints={{ left: 0, right: 0 }}
@@ -58,11 +91,11 @@ export default function ProductHero() {
         }}
       >
         <AnimatePresence mode="popLayout">
-          {products.map((product, index) => {
-            const offset = (index - currentIndex + products.length) % products.length;
+          {displayList.map((product, index) => {
+            const offset = (index - currentIndex + displayList.length) % displayList.length;
             const isCenter = offset === 0;
             
-            if (offset !== 0 && offset !== 1 && offset !== products.length - 1) return null;
+            if (offset !== 0 && offset !== 1 && offset !== displayList.length - 1) return null;
 
             return (
               <motion.div
@@ -108,19 +141,31 @@ export default function ProductHero() {
                         e.currentTarget.style.transform = `perspective(1000px) rotateY(0deg) rotateX(0deg)`;
                     }}
                   >
-                    <img src={formatImageUrl(product.image || product.images?.[0])} alt={product.name} className="w-full h-full object-contain" />
+                    <img 
+                      src={formatImageUrl(product.image || product.images?.[0])} 
+                      alt={product.name} 
+                      className="w-full h-full object-contain" 
+                    />
                   </motion.div>
                 </div>
                 {/* Name and Price */}
                 <div className="mt-4 md:mt-6 text-center">
                     <div className="text-gray-800 font-semibold text-sm md:text-base px-2">{product.name}</div>
-                    <div className="text-gray-600 font-medium text-xs md:text-sm mt-1">${product.price ? product.price.toFixed(2) : '24.99'}</div>
+                    <div className="flex items-center justify-center gap-2 mt-1">
+                      <span className="text-gray-900 font-black text-sm md:text-base">Rs. {product.price ? product.price.toFixed(0) : '1250'}</span>
+                      {product.originalPrice && product.originalPrice > product.price && (
+                        <span className="text-gray-400 line-through text-xs">Rs. {product.originalPrice.toFixed(0)}</span>
+                      )}
+                    </div>
                 </div>
               </motion.div>
             );
           })}
         </AnimatePresence>
       </motion.div>
+
+      {/* Interactive Cart Drawer */}
+      <CartDrawer />
     </div>
   );
 }

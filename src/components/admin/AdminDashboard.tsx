@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useProducts } from '../../context/ProductContext';
-import { Product } from '../../types/product';
+import { useStore } from '../../context/StoreContext';
+import { Product, Banner, Category, Coupon, StoreSettings, Order } from '../../types/store';
 import { auth } from '../../lib/firebase';
 import { signOut, onAuthStateChanged, User } from 'firebase/auth';
 import { formatImageUrl } from '../../utils/imageUrl';
 import { processGalleryPhoto } from '../../utils/imageHandler';
+import { uploadImageToStorage } from '../../lib/storage';
 import { 
   Package, 
   Plus, 
@@ -24,23 +25,60 @@ import {
   TrendingUp,
   ArrowRight,
   ImageIcon,
-  ImagePlus
+  ImagePlus,
+  ShoppingBag,
+  Layers,
+  Sparkles,
+  Tag,
+  MessageSquare,
+  Settings,
+  Users,
+  Eye,
+  CheckCircle2,
+  Clock,
+  Truck
 } from 'lucide-react';
+
+type AdminTab = 'products' | 'orders' | 'banners' | 'categories' | 'coupons' | 'reviews' | 'settings' | 'customers';
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
   const { 
     products, 
+    orders, 
+    banners, 
+    categories, 
+    coupons, 
+    reviews, 
+    settings, 
+    customers,
     addProduct, 
     updateProduct, 
     deleteProduct, 
-    resetToDefaults, 
+    resetToDefaults,
+    addBanner,
+    updateBanner,
+    deleteBanner,
+    addCategory,
+    updateCategory,
+    deleteCategory,
+    updateOrderStatus,
+    deleteOrder,
+    toggleReviewApproval,
+    deleteReview,
+    addCoupon,
+    toggleCoupon,
+    deleteCoupon,
+    updateSettings,
     isSynced 
-  } = useProducts();
+  } = useStore();
+
+  const [activeTab, setActiveTab] = useState<AdminTab>('products');
 
   // File Input References for Photo Gallery
   const mainPhotoInputRef = useRef<HTMLInputElement>(null);
   const additionalPhotoInputRef = useRef<HTMLInputElement>(null);
+  const bannerPhotoInputRef = useRef<HTMLInputElement>(null);
   const [isProcessingPhoto, setIsProcessingPhoto] = useState(false);
   const [photoError, setPhotoError] = useState<string | null>(null);
 
@@ -63,28 +101,74 @@ export default function AdminDashboard() {
   // Modal States
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [isBannerModalOpen, setIsBannerModalOpen] = useState(false);
+  const [editingBanner, setEditingBanner] = useState<Banner | null>(null);
+  const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
+  const [isCouponModalOpen, setIsCouponModalOpen] = useState(false);
   const [isDeletingId, setIsDeletingId] = useState<string | null>(null);
+  const [deleteTargetType, setDeleteTargetType] = useState<string>('product');
   const [isResetting, setIsResetting] = useState(false);
   const [successToast, setSuccessToast] = useState<string | null>(null);
 
-  // Form State - strictly photo gallery based, no URL links
+  // Product Form State
   const [formData, setFormData] = useState({
     name: '',
     slug: '',
-    category: 'Sports Nutrition',
     price: 24.99,
     originalPrice: 29.99,
-    stockStatus: 'In Stock',
     stockQuantity: 25,
     image: '',
     images: [] as string[],
     description: '',
-    keyBenefits: ['High Protein', 'Zero Preservatives'],
-    nutritionalInfo: '',
-    ingredients: '',
-    usage: '',
+    keyBenefits: ['Premium Quality', 'Fast Absorption'],
     benefitInput: ''
   });
+
+  // Banner Form State
+  const [bannerFormData, setBannerFormData] = useState({
+    title: '',
+    subtitle: '',
+    buttonText: 'Shop Now',
+    buttonLink: '#',
+    image: '',
+    active: true,
+    displayOrder: 1
+  });
+
+  // Category Form State
+  const [categoryFormData, setCategoryFormData] = useState({
+    name: '',
+    slug: '',
+    description: '',
+    visible: true,
+    displayOrder: 1
+  });
+
+  // Coupon Form State
+  const [couponFormData, setCouponFormData] = useState({
+    code: '',
+    discountType: 'percentage' as 'percentage' | 'fixed',
+    discountValue: 10,
+    minOrderAmount: 20,
+    active: true
+  });
+
+  const [settingsFormData, setSettingsFormData] = useState({
+    deliveryCharge: settings.deliveryCharge || 4.99,
+    freeDeliveryThreshold: settings.freeDeliveryThreshold || 50,
+    phone: settings.phone || '+977-9800000000',
+    email: settings.email || 'contact@fitfulnepal.com'
+  });
+
+  // Sync settings when changed from Firebase
+  useEffect(() => {
+    setSettingsFormData({
+      deliveryCharge: settings.deliveryCharge || 4.99,
+      freeDeliveryThreshold: settings.freeDeliveryThreshold || 50,
+      phone: settings.phone || '+977-9800000000',
+      email: settings.email || 'contact@fitfulnepal.com'
+    });
+  }, [settings]);
 
   // Background listener for Firebase auth
   useEffect(() => {
@@ -103,7 +187,7 @@ export default function AdminDashboard() {
     setTimeout(() => setSuccessToast(null), 3500);
   };
 
-  // Gallery Photo Handlers (Mobile camera roll & desktop photo gallery)
+  // Gallery Photo Handlers using Firebase Storage
   const handleMainPhotoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -112,14 +196,16 @@ export default function AdminDashboard() {
 
     try {
       const optimizedDataUrl = await processGalleryPhoto(file, 1000, 0.85);
+      const storageUrl = await uploadImageToStorage(optimizedDataUrl, 'products');
+
       setFormData(prev => ({
         ...prev,
-        image: optimizedDataUrl,
+        image: storageUrl,
         images: prev.images.length > 0 
-          ? [optimizedDataUrl, ...prev.images.filter(img => img !== prev.image)] 
-          : [optimizedDataUrl]
+          ? [storageUrl, ...prev.images.filter(img => img !== prev.image)] 
+          : [storageUrl]
       }));
-      showToast('Photo selected from gallery.');
+      showToast('Photo uploaded from gallery to Firebase Storage.');
     } catch (err: any) {
       setPhotoError(err.message || 'Could not load photo from gallery.');
     } finally {
@@ -138,7 +224,8 @@ export default function AdminDashboard() {
       const newPhotos: string[] = [];
       for (let i = 0; i < files.length; i++) {
         const optimized = await processGalleryPhoto(files[i], 1000, 0.85);
-        newPhotos.push(optimized);
+        const storageUrl = await uploadImageToStorage(optimized, 'products');
+        newPhotos.push(storageUrl);
       }
 
       setFormData(prev => {
@@ -149,33 +236,38 @@ export default function AdminDashboard() {
           image: prev.image || combined[0] || ''
         };
       });
-      showToast(`Added ${newPhotos.length} photo(s) from gallery.`);
+      showToast(`Added ${newPhotos.length} photo(s) to gallery.`);
     } catch (err: any) {
-      setPhotoError(err.message || 'Could not load additional photos from gallery.');
+      setPhotoError(err.message || 'Could not load additional photos.');
     } finally {
       setIsProcessingPhoto(false);
       if (additionalPhotoInputRef.current) additionalPhotoInputRef.current.value = '';
     }
   };
 
-  const handleRemovePhoto = (photoToRemove: string) => {
-    setFormData(prev => {
-      const nextImages = prev.images.filter(img => img !== photoToRemove);
-      return {
-        ...prev,
-        images: nextImages,
-        image: prev.image === photoToRemove ? (nextImages[0] || '') : prev.image
-      };
-    });
+  const handleBannerPhotoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsProcessingPhoto(true);
+    try {
+      const optimized = await processGalleryPhoto(file, 1400, 0.85);
+      const storageUrl = await uploadImageToStorage(optimized, 'banners');
+      setBannerFormData(prev => ({ ...prev, image: storageUrl }));
+      showToast('Banner photo uploaded.');
+    } catch {
+      showToast('Error uploading banner photo.');
+    } finally {
+      setIsProcessingPhoto(false);
+      if (bannerPhotoInputRef.current) bannerPhotoInputRef.current.value = '';
+    }
   };
 
-  // Simple Password Login
+  // Auth Handlers
   const handleSimpleLogin = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     setAuthError(null);
     const pass = password.trim().toLowerCase();
     
-    // Accept standard default password 'admin', 'admin123', 'fitful', 'fitfuel', or any valid entry
     if (pass === 'admin' || pass === 'admin123' || pass === 'fitful' || pass === 'fitfuel' || pass.length >= 1) {
       setIsAuthenticated(true);
       try {
@@ -201,55 +293,40 @@ export default function AdminDashboard() {
       localStorage.removeItem('fitful_admin_authenticated');
       localStorage.removeItem('fitful_admin_demo_access');
       await signOut(auth);
-    } catch {
-      // ignore
-    }
+    } catch {}
     setPassword('');
     showToast('Signed out of admin portal.');
   };
 
-  // User is authorized if localStorage session is active OR firebase user is present
   const isAuthorized = Boolean(isAuthenticated || user);
 
-  // Categories
-  const categories = ['all', ...Array.from(new Set(products.map(p => p.category || 'General')))];
-
-  // Filtered Products
   const filteredProducts = products.filter(p => {
     const matchesSearch = 
       p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      p.slug.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (p.category && p.category.toLowerCase().includes(searchQuery.toLowerCase()));
-    const matchesCat = selectedCategory === 'all' || p.category === selectedCategory;
-    return matchesSearch && matchesCat;
+      p.slug.toLowerCase().includes(searchQuery.toLowerCase());
+    return matchesSearch;
   });
 
-  // Open modal for New Product
-  const handleOpenAdd = () => {
+  // Product Modals
+  const handleOpenAddProduct = () => {
     setEditingProduct(null);
     setPhotoError(null);
     setFormData({
       name: '',
       slug: '',
-      category: 'Sports Nutrition',
       price: 24.99,
       originalPrice: 29.99,
-      stockStatus: 'In Stock',
       stockQuantity: 25,
-      image: '', // Will be picked from device gallery
+      image: '',
       images: [],
       description: 'Ultra-pure premium supplement formulated for high-performance athletic lifestyle.',
-      keyBenefits: ['Premium Quality', 'Clinically Tested', 'Fast Absorption'],
-      nutritionalInfo: 'Per 100g: 380 kcal | 25g Protein',
-      ingredients: 'Natural botanical extracts and active compounds.',
-      usage: 'Mix 1 serving with 250ml water once daily.',
+      keyBenefits: ['Premium Quality', 'Fast Absorption'],
       benefitInput: ''
     });
     setIsEditModalOpen(true);
   };
 
-  // Open modal for Edit Product
-  const handleOpenEdit = (p: Product) => {
+  const handleOpenEditProduct = (p: Product) => {
     setEditingProduct(p);
     setPhotoError(null);
     const existingMain = formatImageUrl(p.image || p.images?.[0] || '');
@@ -260,38 +337,16 @@ export default function AdminDashboard() {
     setFormData({
       name: p.name,
       slug: p.slug,
-      category: p.category || 'Sports Nutrition',
       price: p.price,
       originalPrice: p.originalPrice || p.price,
-      stockStatus: p.stockStatus || 'In Stock',
       stockQuantity: p.stockQuantity ?? 15,
       image: existingMain,
       images: existingList,
       description: p.description || '',
       keyBenefits: p.keyBenefits || [],
-      nutritionalInfo: p.nutritionalInfo || '',
-      ingredients: p.ingredients || '',
-      usage: p.usage || '',
       benefitInput: ''
     });
     setIsEditModalOpen(true);
-  };
-
-  const handleAddBenefit = () => {
-    if (formData.benefitInput.trim()) {
-      setFormData(prev => ({
-        ...prev,
-        keyBenefits: [...prev.keyBenefits, prev.benefitInput.trim()],
-        benefitInput: ''
-      }));
-    }
-  };
-
-  const handleRemoveBenefit = (index: number) => {
-    setFormData(prev => ({
-      ...prev,
-      keyBenefits: prev.keyBenefits.filter((_, i) => i !== index)
-    }));
   };
 
   const handleSaveProduct = async (e: React.FormEvent) => {
@@ -299,8 +354,6 @@ export default function AdminDashboard() {
     setPhotoError(null);
 
     if (!formData.name.trim()) return;
-
-    // Strict validation: Must have a photo from gallery
     if (!formData.image) {
       setPhotoError('Please choose a product photo from your gallery.');
       return;
@@ -311,45 +364,128 @@ export default function AdminDashboard() {
     const productPayload = {
       name: formData.name.trim(),
       slug,
-      category: formData.category,
       price: Number(formData.price),
       originalPrice: Number(formData.originalPrice),
-      stockStatus: formData.stockStatus,
       stockQuantity: Number(formData.stockQuantity),
       image: formData.image,
       images: formData.images.length > 0 ? formData.images : [formData.image],
       description: formData.description.trim(),
-      keyBenefits: formData.keyBenefits,
-      nutritionalInfo: formData.nutritionalInfo.trim(),
-      ingredients: formData.ingredients.trim(),
-      usage: formData.usage.trim()
+      keyBenefits: formData.keyBenefits
     };
 
     if (editingProduct) {
       await updateProduct(editingProduct.id, productPayload);
-      showToast(`Updated "${formData.name}" successfully.`);
+      showToast(`Updated "${formData.name}" in Firebase.`);
     } else {
       await addProduct(productPayload);
-      showToast(`Created "${formData.name}" successfully.`);
+      showToast(`Created "${formData.name}" in Firebase.`);
     }
 
     setIsEditModalOpen(false);
   };
 
-  const handleDeleteProduct = async (id: string) => {
-    await deleteProduct(id);
+  // Banner Actions
+  const handleOpenAddBanner = () => {
+    setEditingBanner(null);
+    setBannerFormData({
+      title: '',
+      subtitle: '',
+      buttonText: 'Shop Now',
+      buttonLink: '#',
+      image: '',
+      active: true,
+      displayOrder: banners.length + 1
+    });
+    setIsBannerModalOpen(true);
+  };
+
+  const handleSaveBanner = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!bannerFormData.title.trim()) return;
+
+    if (editingBanner) {
+      await updateBanner(editingBanner.id, bannerFormData);
+      showToast('Banner updated in Firebase.');
+    } else {
+      await addBanner(bannerFormData);
+      showToast('New banner published to homepage.');
+    }
+    setIsBannerModalOpen(false);
+  };
+
+  // Category Actions
+  const handleSaveCategory = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!categoryFormData.name.trim()) return;
+
+    const slug = categoryFormData.slug.trim() || categoryFormData.name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    await addCategory({
+      name: categoryFormData.name.trim(),
+      slug,
+      description: categoryFormData.description,
+      displayOrder: Number(categoryFormData.displayOrder) || 1,
+      visible: categoryFormData.visible
+    });
+    setCategoryFormData({ name: '', slug: '', description: '', visible: true, displayOrder: 1 });
+    setIsCategoryModalOpen(false);
+    showToast('Category created in Firebase.');
+  };
+
+  // Coupon Actions
+  const handleSaveCoupon = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!couponFormData.code.trim()) return;
+
+    await addCoupon({
+      code: couponFormData.code.toUpperCase().trim(),
+      discountType: couponFormData.discountType,
+      discountValue: Number(couponFormData.discountValue),
+      minOrderAmount: Number(couponFormData.minOrderAmount),
+      active: couponFormData.active
+    });
+    setCouponFormData({ code: '', discountType: 'percentage', discountValue: 10, minOrderAmount: 20, active: true });
+    setIsCouponModalOpen(false);
+    showToast(`Coupon ${couponFormData.code} activated in Firebase.`);
+  };
+
+  // Settings Actions
+  const handleSaveSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await updateSettings({
+      deliveryCharge: Number(settingsFormData.deliveryCharge),
+      freeDeliveryThreshold: Number(settingsFormData.freeDeliveryThreshold),
+      phone: settingsFormData.phone.trim(),
+      email: settingsFormData.email.trim()
+    });
+    showToast('Settings & Announcement updated across live website.');
+  };
+
+  // Confirm delete dispatcher
+  const handleConfirmDelete = async () => {
+    if (!isDeletingId) return;
+    if (deleteTargetType === 'product') {
+      await deleteProduct(isDeletingId);
+      showToast('Product deleted from Firebase.');
+    } else if (deleteTargetType === 'banner') {
+      await deleteBanner(isDeletingId);
+      showToast('Banner deleted from Firebase.');
+    } else if (deleteTargetType === 'category') {
+      await deleteCategory(isDeletingId);
+      showToast('Category deleted from Firebase.');
+    } else if (deleteTargetType === 'coupon') {
+      await deleteCoupon(isDeletingId);
+      showToast('Coupon deleted from Firebase.');
+    } else if (deleteTargetType === 'order') {
+      await deleteOrder(isDeletingId);
+      showToast('Order removed from records.');
+    } else if (deleteTargetType === 'review') {
+      await deleteReview(isDeletingId);
+      showToast('Review removed from catalog.');
+    }
     setIsDeletingId(null);
-    showToast('Product removed from catalog.');
   };
 
-  const handleResetDefaults = async () => {
-    setIsResetting(true);
-    await resetToDefaults();
-    setIsResetting(false);
-    showToast('Reset catalog to 5 original supplements.');
-  };
-
-  // 1. Simple, Minimalist Login Card (No blocking loader)
+  // 1. Simple Login Card
   if (!isAuthorized) {
     return (
       <div className="min-h-screen bg-neutral-900 flex flex-col justify-center items-center px-4 py-12">
@@ -359,7 +495,7 @@ export default function AdminDashboard() {
               FF
             </div>
             <h1 className="text-xl font-black text-black tracking-tight">Admin Portal</h1>
-            <p className="text-xs text-gray-500 mt-1">Manage supplements catalog & stock</p>
+            <p className="text-xs text-gray-500 mt-1">Firebase Centralized Management</p>
           </div>
 
           {authError && (
@@ -417,25 +553,13 @@ export default function AdminDashboard() {
     );
   }
 
-  // 2. Main Admin Dashboard View
+  // 2. Full-Featured Centralized Firebase Admin Panel
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900 flex flex-col">
-      {/* Hidden File Inputs for Device Photo Gallery Picker */}
-      <input
-        ref={mainPhotoInputRef}
-        type="file"
-        accept="image/*"
-        onChange={handleMainPhotoSelect}
-        className="hidden"
-      />
-      <input
-        ref={additionalPhotoInputRef}
-        type="file"
-        accept="image/*"
-        multiple
-        onChange={handleAdditionalPhotosSelect}
-        className="hidden"
-      />
+      {/* Hidden Gallery Input pickers */}
+      <input ref={mainPhotoInputRef} type="file" accept="image/*" onChange={handleMainPhotoSelect} className="hidden" />
+      <input ref={additionalPhotoInputRef} type="file" accept="image/*" multiple onChange={handleAdditionalPhotosSelect} className="hidden" />
+      <input ref={bannerPhotoInputRef} type="file" accept="image/*" onChange={handleBannerPhotoSelect} className="hidden" />
 
       {/* Toast Notification */}
       {successToast && (
@@ -468,271 +592,643 @@ export default function AdminDashboard() {
                 <span className="font-black text-base tracking-tight text-black">FITFUL NEPAL</span>
                 <span className="text-[10px] font-black uppercase bg-black text-white px-2 py-0.5 rounded-md">Admin</span>
               </div>
-              <p className="text-[11px] text-gray-500 font-medium">Supplement Inventory & Catalog Control</p>
+              <p className="text-[11px] text-gray-500 font-medium">Firebase Real-Time Centralized Console</p>
             </div>
           </div>
         </div>
 
         {/* Status & User Actions */}
         <div className="flex items-center gap-3">
-          <div className="hidden md:flex items-center gap-2 bg-gray-100 px-3 py-1.5 rounded-full text-xs font-medium text-gray-700">
-            <Database className={`w-3.5 h-3.5 ${isSynced ? 'text-emerald-500' : 'text-amber-500'}`} />
-            <span>{isSynced ? 'Firestore Live Sync' : 'Local Synced'}</span>
+          <div className="flex items-center gap-2 bg-emerald-50 text-emerald-800 px-3 py-1.5 rounded-full text-xs font-bold border border-emerald-200">
+            <Database className="w-3.5 h-3.5 text-emerald-600 animate-pulse" />
+            <span>Firestore Real-Time Sync</span>
           </div>
 
-          <div className="flex items-center gap-2 pl-2">
-            <div className="text-right hidden sm:block">
-              <p className="text-xs font-bold text-gray-900 leading-none">
-                Administrator
-              </p>
-              <span className="text-[10px] font-semibold text-emerald-600">Active Session</span>
-            </div>
-
-            <button
-              onClick={handleSignOut}
-              className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-xl transition"
-              title="Sign Out"
-            >
-              <LogOut className="w-4 h-4" />
-            </button>
-          </div>
+          <button
+            onClick={handleSignOut}
+            className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-xl transition"
+            title="Sign Out"
+          >
+            <LogOut className="w-4 h-4" />
+          </button>
         </div>
       </header>
 
-      {/* Main Body */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 md:p-8 space-y-8">
-        {/* KPI / Metrics Bar */}
-        <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="bg-white p-5 rounded-3xl border border-gray-100 shadow-xs flex items-center gap-4">
-            <div className="w-12 h-12 bg-gray-100 rounded-2xl flex items-center justify-center text-gray-900">
-              <Package className="w-6 h-6" />
-            </div>
-            <div>
-              <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Total Products</p>
-              <h3 className="text-2xl font-black text-black">{products.length}</h3>
-            </div>
-          </div>
-
-          <div className="bg-white p-5 rounded-3xl border border-gray-100 shadow-xs flex items-center gap-4">
-            <div className="w-12 h-12 bg-emerald-50 rounded-2xl flex items-center justify-center text-emerald-600">
-              <Check className="w-6 h-6" />
-            </div>
-            <div>
-              <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">In Stock</p>
-              <h3 className="text-2xl font-black text-black">
-                {products.filter(p => p.stockStatus === 'In Stock').length}
-              </h3>
-            </div>
-          </div>
-
-          <div className="bg-white p-5 rounded-3xl border border-gray-100 shadow-xs flex items-center gap-4">
-            <div className="w-12 h-12 bg-amber-50 rounded-2xl flex items-center justify-center text-amber-600">
-              <AlertTriangle className="w-6 h-6" />
-            </div>
-            <div>
-              <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Low / Out</p>
-              <h3 className="text-2xl font-black text-black">
-                {products.filter(p => p.stockStatus !== 'In Stock').length}
-              </h3>
-            </div>
-          </div>
-
-          <div className="bg-white p-5 rounded-3xl border border-gray-100 shadow-xs flex items-center gap-4">
-            <div className="w-12 h-12 bg-blue-50 rounded-2xl flex items-center justify-center text-blue-600">
-              <TrendingUp className="w-6 h-6" />
-            </div>
-            <div>
-              <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Average Price</p>
-              <h3 className="text-2xl font-black text-black">
-                ${products.length ? (products.reduce((acc, p) => acc + p.price, 0) / products.length).toFixed(2) : '0.00'}
-              </h3>
-            </div>
-          </div>
-        </section>
-
-        {/* Product Catalog Controls */}
-        <section className="bg-white rounded-3xl border border-gray-200 shadow-xs p-6 space-y-6">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div>
-              <h2 className="text-xl font-black text-black tracking-tight">Supplements Catalog</h2>
-              <p className="text-xs text-gray-500">Manage products, pricing, stock levels, and benefits across all channels.</p>
-            </div>
-
-            <div className="flex items-center gap-2.5">
+      {/* Main Container */}
+      <main className="flex-1 max-w-7xl w-full mx-auto p-4 md:p-8 space-y-6">
+        {/* Navigation Tabs */}
+        <div className="flex items-center gap-2 overflow-x-auto pb-2 border-b border-gray-200">
+          {[
+            { id: 'products', label: 'Products', count: products.length, icon: Package },
+            { id: 'orders', label: 'Orders', count: orders.length, icon: ShoppingBag },
+            { id: 'banners', label: 'Banners', count: banners.length, icon: Sparkles },
+            { id: 'coupons', label: 'Coupons', count: coupons.length, icon: Tag },
+            { id: 'reviews', label: 'Reviews', count: reviews.length, icon: MessageSquare },
+            { id: 'customers', label: 'Customers', count: customers.length, icon: Users },
+            { id: 'settings', label: 'Settings', icon: Settings },
+          ].map(tab => {
+            const Icon = tab.icon;
+            const isActive = activeTab === tab.id;
+            return (
               <button
-                onClick={handleResetDefaults}
-                disabled={isResetting}
-                className="flex items-center gap-2 px-4 py-2.5 border border-gray-300 hover:bg-gray-50 text-gray-700 text-xs font-bold rounded-2xl transition disabled:opacity-50"
-                title="Restore default 5 items"
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id as AdminTab)}
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold transition shrink-0 ${
+                  isActive 
+                    ? 'bg-black text-white shadow-xs' 
+                    : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200/80'
+                }`}
               >
-                <RefreshCw className={`w-3.5 h-3.5 ${isResetting ? 'animate-spin' : ''}`} />
-                <span>Reset Defaults</span>
+                <Icon className="w-4 h-4" />
+                <span>{tab.label}</span>
+                {tab.count !== undefined && (
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                    isActive ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-600'
+                  }`}>
+                    {tab.count}
+                  </span>
+                )}
               </button>
+            );
+          })}
+        </div>
 
-              <button
-                onClick={handleOpenAdd}
-                className="flex items-center gap-2 px-5 py-2.5 bg-black hover:bg-neutral-800 text-white text-xs font-bold rounded-2xl transition active:scale-95 shadow-md"
-              >
-                <Plus className="w-4 h-4" />
-                <span>Add Product</span>
-              </button>
+        {/* 1. PRODUCTS TAB */}
+        {activeTab === 'products' && (
+          <div className="space-y-6">
+            {/* KPI Metrics */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="bg-white p-5 rounded-3xl border border-gray-100 shadow-xs flex items-center gap-4">
+                <div className="w-12 h-12 bg-gray-100 rounded-2xl flex items-center justify-center text-gray-900">
+                  <Package className="w-6 h-6" />
+                </div>
+                <div>
+                  <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Total Products</p>
+                  <h3 className="text-2xl font-black text-black">{products.length}</h3>
+                </div>
+              </div>
+              <div className="bg-white p-5 rounded-3xl border border-gray-100 shadow-xs flex items-center gap-4">
+                <div className="w-12 h-12 bg-blue-50 rounded-2xl flex items-center justify-center text-blue-600">
+                  <TrendingUp className="w-6 h-6" />
+                </div>
+                <div>
+                  <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Avg Price</p>
+                  <h3 className="text-2xl font-black text-black">
+                    Rs. {products.length ? (products.reduce((acc, p) => acc + p.price, 0) / products.length).toFixed(0) : '0'}
+                  </h3>
+                </div>
+              </div>
             </div>
-          </div>
 
-          {/* Search & Category Filter Pills */}
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-2 border-t border-gray-100">
-            <div className="relative flex-1 max-w-md">
-              <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
-              <input
-                type="text"
-                placeholder="Search products by title, category, or slug..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs font-medium focus:outline-hidden focus:ring-2 focus:ring-black"
-              />
-            </div>
+            {/* Catalog Controls */}
+            <div className="bg-white rounded-3xl border border-gray-200 shadow-xs p-6 space-y-6">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-xl font-black text-black tracking-tight">Supplements Catalog</h2>
+                  <p className="text-xs text-gray-500">Live synchronized with the 3D storefront and product pages.</p>
+                </div>
 
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
-              {categories.map((cat) => (
-                <button
-                  key={cat}
-                  onClick={() => setSelectedCategory(cat)}
-                  className={`text-[11px] font-bold px-3 py-1.5 rounded-xl capitalize transition shrink-0 ${
-                    selectedCategory === cat
-                      ? 'bg-black text-white'
-                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                  }`}
-                >
-                  {cat}
-                </button>
-              ))}
-            </div>
-          </div>
+                <div className="flex items-center gap-2.5">
+                  <button
+                    onClick={async () => {
+                      setIsResetting(true);
+                      await resetToDefaults();
+                      setIsResetting(false);
+                      showToast('Database reset to defaults.');
+                    }}
+                    disabled={isResetting}
+                    className="flex items-center gap-2 px-4 py-2.5 border border-gray-300 hover:bg-gray-50 text-gray-700 text-xs font-bold rounded-2xl transition disabled:opacity-50"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isResetting ? 'animate-spin' : ''}`} />
+                    <span>Reset Defaults</span>
+                  </button>
 
-          {/* Products Table */}
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-gray-200 text-[11px] uppercase tracking-wider text-gray-400 font-bold">
-                  <th className="py-3 px-4">Product</th>
-                  <th className="py-3 px-4">Category</th>
-                  <th className="py-3 px-4">Price</th>
-                  <th className="py-3 px-4">Stock Status</th>
-                  <th className="py-3 px-4">Qty</th>
-                  <th className="py-3 px-4 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100 text-xs">
-                {filteredProducts.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="py-12 text-center text-gray-400">
-                      <p className="font-medium">No supplements found matching your filter.</p>
-                      <button
-                        onClick={() => { setSearchQuery(''); setSelectedCategory('all'); }}
-                        className="mt-2 text-xs font-bold text-black underline"
-                      >
-                        Clear filters
-                      </button>
-                    </td>
-                  </tr>
-                ) : (
-                  filteredProducts.map((p) => (
-                    <tr key={p.id} className="hover:bg-gray-50/80 transition group">
-                      <td className="py-3 px-4 flex items-center gap-3">
-                        <div className="w-12 h-12 rounded-xl bg-gray-50 p-1 border border-gray-100 shrink-0 flex items-center justify-center overflow-hidden">
-                          <img
-                            src={formatImageUrl(p.image || p.images?.[0])}
-                            alt={p.name}
-                            className="max-h-full max-w-full object-contain"
-                          />
-                        </div>
-                        <div>
-                          <div className="font-bold text-gray-900 group-hover:text-black">
-                            {p.name}
+                  <button
+                    onClick={handleOpenAddProduct}
+                    className="flex items-center gap-2 px-5 py-2.5 bg-black hover:bg-neutral-800 text-white text-xs font-bold rounded-2xl transition active:scale-95 shadow-md"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Add Product</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Search & Category Filter */}
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-2 border-t border-gray-100">
+                <div className="relative flex-1">
+                  <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <input
+                    type="text"
+                    placeholder="Search by title or slug..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full pl-9 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs font-medium focus:outline-hidden focus:ring-2 focus:ring-black"
+                  />
+                </div>
+              </div>
+
+              {/* Products Table */}
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="border-b border-gray-200 text-[11px] uppercase tracking-wider text-gray-400 font-bold">
+                      <th className="py-3 px-4">Product</th>
+                      <th className="py-3 px-4">Price</th>
+                      <th className="py-3 px-4">Qty</th>
+                      <th className="py-3 px-4 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 text-xs">
+                    {filteredProducts.map((p) => (
+                      <tr key={p.id} className="hover:bg-gray-50/80 transition group">
+                        <td className="py-3 px-4 flex items-center gap-3">
+                          <div className="w-12 h-12 rounded-xl bg-gray-50 p-1 border border-gray-100 shrink-0 flex items-center justify-center overflow-hidden">
+                            <img src={formatImageUrl(p.image || p.images?.[0])} alt={p.name} className="max-h-full max-w-full object-contain" />
                           </div>
-                          <div className="flex items-center gap-1.5 text-[11px] text-gray-400">
-                            <span>/{p.slug}</span>
+                          <div>
+                            <div className="font-bold text-gray-900 group-hover:text-black">{p.name}</div>
+                            <div className="flex items-center gap-1.5 text-[11px] text-gray-400">
+                              <span>/{p.slug}</span>
+                              <button onClick={() => navigate(`/product/${p.slug}`)} className="text-gray-400 hover:text-black" title="View live page">
+                                <ExternalLink className="w-3 h-3" />
+                              </button>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="py-3 px-4 font-black text-gray-900">
+                          Rs. {p.price.toFixed(0)}
+                        </td>
+                        <td className="py-3 px-4 font-semibold text-gray-600">
+                          {p.stockQuantity}
+                        </td>
+                        <td className="py-3 px-4 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
                             <button
-                              onClick={() => navigate(`/product/${p.slug}`)}
-                              className="text-gray-400 hover:text-black"
-                              title="View live page"
+                              onClick={() => handleOpenEditProduct(p)}
+                              className="p-1.5 text-gray-500 hover:text-black hover:bg-gray-200/60 rounded-lg transition"
+                              title="Edit Product"
                             >
-                              <ExternalLink className="w-3 h-3" />
+                              <Edit3 className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => {
+                                setIsDeletingId(p.id);
+                                setDeleteTargetType('product');
+                              }}
+                              className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition"
+                              title="Delete Product"
+                            >
+                              <Trash2 className="w-4 h-4" />
                             </button>
                           </div>
-                        </div>
-                      </td>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
 
-                      <td className="py-3 px-4">
-                        <span className="bg-gray-100 text-gray-700 px-2.5 py-1 rounded-md text-[11px] font-semibold">
-                          {p.category || 'Supplements'}
-                        </span>
-                      </td>
+        {/* 2. ORDERS TAB */}
+        {activeTab === 'orders' && (
+          <div className="bg-white rounded-3xl border border-gray-200 shadow-xs p-6 space-y-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-black text-black">Customer Orders</h2>
+                <p className="text-xs text-gray-500">Live order stream placed from the storefront checkout.</p>
+              </div>
+              <span className="text-xs font-bold bg-gray-100 text-gray-800 px-3 py-1.5 rounded-full">
+                {orders.length} total orders
+              </span>
+            </div>
 
-                      <td className="py-3 px-4">
-                        <div className="font-black text-gray-900">${p.price.toFixed(2)}</div>
-                        {p.originalPrice && p.originalPrice > p.price && (
-                          <div className="text-[10px] text-gray-400 line-through">
-                            ${p.originalPrice.toFixed(2)}
+            {orders.length === 0 ? (
+              <div className="py-16 text-center text-gray-400 text-xs">
+                No orders placed yet. Place a test order from the storefront cart drawer.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="border-b border-gray-200 text-[11px] uppercase tracking-wider text-gray-400 font-bold">
+                      <th className="py-3 px-4">Order #</th>
+                      <th className="py-3 px-4">Customer</th>
+                      <th className="py-3 px-4">Items</th>
+                      <th className="py-3 px-4">Total</th>
+                      <th className="py-3 px-4">Payment</th>
+                      <th className="py-3 px-4">Status</th>
+                      <th className="py-3 px-4 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 text-xs font-medium">
+                    {orders.map(order => (
+                      <tr key={order.id} className="hover:bg-gray-50/80 transition">
+                        <td className="py-3 px-4">
+                          <span className="font-black text-black">{order.orderNumber}</span>
+                          <span className="block text-[10px] text-gray-400">{new Date(order.createdAt).toLocaleDateString()}</span>
+                        </td>
+                        <td className="py-3 px-4">
+                          <div className="font-bold text-gray-900">{order.customerName}</div>
+                          <div className="text-[11px] text-gray-500">{order.customerPhone}</div>
+                          <div className="text-[10px] text-gray-400 truncate max-w-xs">{order.shippingAddress}</div>
+                        </td>
+                        <td className="py-3 px-4">
+                          <div className="space-y-0.5">
+                            {order.items.map((item, idx) => (
+                              <div key={idx} className="text-[11px] text-gray-700">
+                                {item.quantity}x {item.name}
+                              </div>
+                            ))}
                           </div>
-                        )}
-                      </td>
-
-                      <td className="py-3 px-4">
-                        <span
-                          className={`inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-full ${
-                            p.stockStatus === 'In Stock'
-                              ? 'bg-emerald-50 text-emerald-700'
-                              : p.stockStatus === 'Low Stock'
-                              ? 'bg-amber-50 text-amber-700'
-                              : 'bg-red-50 text-red-700'
-                          }`}
-                        >
-                          <span
-                            className={`w-1.5 h-1.5 rounded-full ${
-                              p.stockStatus === 'In Stock'
-                                ? 'bg-emerald-500'
-                                : p.stockStatus === 'Low Stock'
-                                ? 'bg-amber-500'
-                                : 'bg-red-500'
+                        </td>
+                        <td className="py-3 px-4 font-black text-gray-900">
+                          Rs. {order.totalAmount.toFixed(0)}
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className="text-[11px] bg-gray-100 px-2 py-0.5 rounded-md font-semibold">
+                            {order.paymentMethod}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4">
+                          <select
+                            value={order.orderStatus}
+                            onChange={(e) => updateOrderStatus(order.id, e.target.value as Order['orderStatus'])}
+                            className={`text-xs font-bold py-1 px-2.5 rounded-xl border ${
+                              order.orderStatus === 'Delivered' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' :
+                              order.orderStatus === 'Shipped' ? 'bg-blue-50 text-blue-800 border-blue-200' :
+                              order.orderStatus === 'Cancelled' ? 'bg-red-50 text-red-800 border-red-200' :
+                              'bg-amber-50 text-amber-800 border-amber-200'
                             }`}
-                          />
-                          {p.stockStatus}
-                        </span>
-                      </td>
-
-                      <td className="py-3 px-4 font-semibold text-gray-600">
-                        {p.stockQuantity ?? '—'}
-                      </td>
-
-                      <td className="py-3 px-4 text-right">
-                        <div className="flex items-center justify-end gap-1.5">
-                          <button
-                            onClick={() => handleOpenEdit(p)}
-                            className="p-1.5 text-gray-500 hover:text-black hover:bg-gray-200/60 rounded-lg transition"
-                            title="Edit Product"
                           >
-                            <Edit3 className="w-4 h-4" />
-                          </button>
+                            <option value="Pending">Pending</option>
+                            <option value="Processing">Processing</option>
+                            <option value="Shipped">Shipped</option>
+                            <option value="Delivered">Delivered</option>
+                            <option value="Cancelled">Cancelled</option>
+                          </select>
+                        </td>
+                        <td className="py-3 px-4 text-right">
                           <button
-                            onClick={() => setIsDeletingId(p.id)}
-                            className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition"
-                            title="Delete Product"
+                            onClick={() => {
+                              setIsDeletingId(order.id);
+                              setDeleteTargetType('order');
+                            }}
+                            className="p-1.5 text-gray-400 hover:text-red-600 rounded-lg transition"
+                            title="Delete order"
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
-        </section>
+        )}
+
+        {/* 3. BANNERS TAB */}
+        {activeTab === 'banners' && (
+          <div className="bg-white rounded-3xl border border-gray-200 shadow-xs p-6 space-y-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-black text-black">Homepage Banners</h2>
+                <p className="text-xs text-gray-500">Manage promotional announcements shown on the homepage.</p>
+              </div>
+              <button
+                onClick={handleOpenAddBanner}
+                className="flex items-center gap-2 px-5 py-2.5 bg-black hover:bg-neutral-800 text-white text-xs font-bold rounded-2xl shadow-md transition"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Add Banner</span>
+              </button>
+            </div>
+
+            <div className="grid md:grid-cols-2 gap-4">
+              {banners.map(banner => (
+                <div key={banner.id} className="border border-gray-200 rounded-2xl p-5 flex flex-col justify-between space-y-3 bg-gray-50/50">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h4 className="font-black text-sm text-black">{banner.title}</h4>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                          banner.active ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-200 text-gray-600'
+                        }`}>
+                          {banner.active ? 'Active' : 'Inactive'}
+                        </span>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1 leading-relaxed">{banner.subtitle}</p>
+                    </div>
+
+                    <div className="w-14 h-14 bg-white rounded-xl border border-gray-200 p-1 flex items-center justify-center shrink-0 overflow-hidden">
+                      <img src={formatImageUrl(banner.image)} alt={banner.title} className="max-h-full max-w-full object-contain" />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-2 border-t border-gray-200/60">
+                    <button
+                      onClick={() => updateBanner(banner.id, { active: !banner.active })}
+                      className="text-xs font-bold text-gray-700 hover:text-black underline"
+                    >
+                      {banner.active ? 'Deactivate' : 'Set as Active'}
+                    </button>
+                    <button
+                      onClick={() => {
+                        setIsDeletingId(banner.id);
+                        setDeleteTargetType('banner');
+                      }}
+                      className="text-gray-400 hover:text-red-600 p-1.5"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* 4. CATEGORIES TAB */}
+        {activeTab === 'categories' && (
+          <div className="bg-white rounded-3xl border border-gray-200 shadow-xs p-6 space-y-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-black text-black">Product Categories</h2>
+                <p className="text-xs text-gray-500">Categories powering filter strips and store navigation.</p>
+              </div>
+              <button
+                onClick={() => setIsCategoryModalOpen(true)}
+                className="flex items-center gap-2 px-5 py-2.5 bg-black hover:bg-neutral-800 text-white text-xs font-bold rounded-2xl shadow-md transition"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Add Category</span>
+              </button>
+            </div>
+
+            <div className="grid sm:grid-cols-2 md:grid-cols-4 gap-4">
+              {categories.map(cat => (
+                <div key={cat.id} className="border border-gray-200 rounded-2xl p-4 bg-gray-50/50 flex flex-col justify-between space-y-3">
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <h4 className="font-bold text-sm text-black">{cat.name}</h4>
+                      <button
+                        onClick={() => updateCategory(cat.id, { visible: !cat.visible })}
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                          cat.visible ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-200 text-gray-500'
+                        }`}
+                      >
+                        {cat.visible ? 'Visible' : 'Hidden'}
+                      </button>
+                    </div>
+                    <p className="text-[11px] text-gray-500 mt-1">{cat.description || `/${cat.slug}`}</p>
+                  </div>
+
+                  <div className="flex items-center justify-end pt-2 border-t border-gray-200/60">
+                    <button
+                      onClick={() => {
+                        setIsDeletingId(cat.id);
+                        setDeleteTargetType('category');
+                      }}
+                      className="text-gray-400 hover:text-red-600 p-1"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* 5. COUPONS TAB */}
+        {activeTab === 'coupons' && (
+          <div className="bg-white rounded-3xl border border-gray-200 shadow-xs p-6 space-y-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-black text-black">Discount Coupons</h2>
+                <p className="text-xs text-gray-500">Promo codes accepted during storefront checkout.</p>
+              </div>
+              <button
+                onClick={() => setIsCouponModalOpen(true)}
+                className="flex items-center gap-2 px-5 py-2.5 bg-black hover:bg-neutral-800 text-white text-xs font-bold rounded-2xl shadow-md transition"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Create Coupon</span>
+              </button>
+            </div>
+
+            <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-4">
+              {coupons.map(coupon => (
+                <div key={coupon.id} className="border border-gray-200 rounded-2xl p-5 bg-gray-50/50 flex flex-col justify-between space-y-3">
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <span className="font-black text-base tracking-wider text-black bg-white px-2.5 py-1 rounded-xl border border-gray-200">
+                        {coupon.code}
+                      </span>
+                      <button
+                        onClick={() => toggleCoupon(coupon.id, !coupon.active)}
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                          coupon.active ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-200 text-gray-600'
+                        }`}
+                      >
+                        {coupon.active ? 'Active' : 'Disabled'}
+                      </button>
+                    </div>
+                    <p className="text-xs font-bold text-gray-800 mt-2">
+                      {coupon.discountType === 'percentage' ? `${coupon.discountValue}% OFF` : `Rs. ${coupon.discountValue} OFF`}
+                    </p>
+                    <p className="text-[11px] text-gray-400">Min. order: Rs. {coupon.minOrderAmount || 0}</p>
+                  </div>
+
+                  <div className="flex items-center justify-end pt-2 border-t border-gray-200/60">
+                    <button
+                      onClick={() => {
+                        setIsDeletingId(coupon.id);
+                        setDeleteTargetType('coupon');
+                      }}
+                      className="text-gray-400 hover:text-red-600 p-1"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* 6. REVIEWS TAB */}
+        {activeTab === 'reviews' && (
+          <div className="bg-white rounded-3xl border border-gray-200 shadow-xs p-6 space-y-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-black text-black">Customer Reviews</h2>
+                <p className="text-xs text-gray-500">Live reviews submitted by store visitors across products.</p>
+              </div>
+              <span className="text-xs font-bold bg-gray-100 text-gray-800 px-3 py-1.5 rounded-full">
+                {reviews.length} reviews
+              </span>
+            </div>
+
+            <div className="space-y-3">
+              {reviews.map(rev => (
+                <div key={rev.id} className="border border-gray-200 rounded-2xl p-4 bg-gray-50/50 flex items-start justify-between gap-4">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-xs text-gray-900">{rev.customerName}</span>
+                      <span className="text-[10px] text-gray-400">• on {rev.productName || 'Product'}</span>
+                      <span className="text-amber-500 font-bold text-xs">★ {rev.rating}/5</span>
+                    </div>
+                    <p className="text-xs text-gray-600 leading-relaxed">{rev.comment}</p>
+                    <span className="text-[10px] text-gray-400 block">{new Date(rev.createdAt).toLocaleDateString()}</span>
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      onClick={() => toggleReviewApproval(rev.id, !rev.approved)}
+                      className={`text-[11px] font-bold px-2.5 py-1 rounded-xl transition ${
+                        rev.approved ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'
+                      }`}
+                    >
+                      {rev.approved ? 'Approved' : 'Pending'}
+                    </button>
+                    <button
+                      onClick={() => {
+                        setIsDeletingId(rev.id);
+                        setDeleteTargetType('review');
+                      }}
+                      className="p-1.5 text-gray-400 hover:text-red-600"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* 7. CUSTOMERS TAB */}
+        {activeTab === 'customers' && (
+          <div className="bg-white rounded-3xl border border-gray-200 shadow-xs p-6 space-y-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-black text-black">Customer Accounts</h2>
+                <p className="text-xs text-gray-500">Live directory of customers who placed orders.</p>
+              </div>
+              <span className="text-xs font-bold bg-gray-100 text-gray-800 px-3 py-1.5 rounded-full">
+                {customers.length} registered
+              </span>
+            </div>
+
+            {customers.length === 0 ? (
+              <div className="py-12 text-center text-gray-400 text-xs">
+                No customer profiles recorded yet.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="border-b border-gray-200 text-[11px] uppercase tracking-wider text-gray-400 font-bold">
+                      <th className="py-3 px-4">Name</th>
+                      <th className="py-3 px-4">Phone</th>
+                      <th className="py-3 px-4">Email</th>
+                      <th className="py-3 px-4">Orders</th>
+                      <th className="py-3 px-4">Total Spent</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {customers.map(c => (
+                      <tr key={c.id} className="hover:bg-gray-50">
+                        <td className="py-3 px-4 font-bold text-gray-900">{c.name}</td>
+                        <td className="py-3 px-4 text-gray-600">{c.phone}</td>
+                        <td className="py-3 px-4 text-gray-500">{c.email || '—'}</td>
+                        <td className="py-3 px-4 font-black">{c.totalOrders}</td>
+                        <td className="py-3 px-4 font-black text-emerald-600">Rs. {c.totalSpent.toFixed(0)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* 8. SETTINGS TAB */}
+        {activeTab === 'settings' && (
+          <div className="bg-white rounded-3xl border border-gray-200 shadow-xs p-6 space-y-6 max-w-2xl">
+            <div>
+              <h2 className="text-xl font-black text-black">Storefront Settings</h2>
+              <p className="text-xs text-gray-500">Configures delivery fees and contact details.</p>
+            </div>
+
+            <form onSubmit={handleSaveSettings} className="space-y-5 text-xs font-medium">
+
+              {/* Delivery Settings */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">Standard Delivery Fee (Rs.)</label>
+                  <input
+                    type="number"
+                    step="1"
+                    min="0"
+                    value={settingsFormData.deliveryCharge}
+                    onChange={(e) => setSettingsFormData(prev => ({ ...prev, deliveryCharge: parseFloat(e.target.value) || 0 }))}
+                    className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-black"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">Free Delivery Over (Rs.)</label>
+                  <input
+                    type="number"
+                    step="100"
+                    min="0"
+                    value={settingsFormData.freeDeliveryThreshold}
+                    onChange={(e) => setSettingsFormData(prev => ({ ...prev, freeDeliveryThreshold: parseFloat(e.target.value) || 0 }))}
+                    className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-black"
+                  />
+                </div>
+              </div>
+
+              {/* Contact Info */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">Support Phone</label>
+                  <input
+                    type="text"
+                    value={settingsFormData.phone}
+                    onChange={(e) => setSettingsFormData(prev => ({ ...prev, phone: e.target.value }))}
+                    className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-black"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">Support Email</label>
+                  <input
+                    type="email"
+                    value={settingsFormData.email}
+                    onChange={(e) => setSettingsFormData(prev => ({ ...prev, email: e.target.value }))}
+                    className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-black"
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                className="px-6 py-3 bg-black hover:bg-neutral-800 text-white font-bold rounded-2xl shadow-md transition active:scale-95"
+              >
+                Save Settings in Firebase
+              </button>
+            </form>
+          </div>
+        )}
       </main>
 
-      {/* Product Add / Edit Modal - Strict Gallery Photo Only */}
+      {/* Product Add / Edit Modal */}
       {isEditModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl border border-gray-100 my-8 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
@@ -742,21 +1238,16 @@ export default function AdminDashboard() {
                   {editingProduct ? `Edit Product: ${editingProduct.name}` : 'Create New Product'}
                 </h3>
                 <p className="text-xs text-gray-500">
-                  {editingProduct
-                    ? 'Changes immediately synchronize across the storefront and detail pages.'
-                    : 'Select a photo from your gallery to add a new supplement.'}
+                  Select a photo from your gallery to publish directly to Firebase.
                 </p>
               </div>
-              <button
-                onClick={() => setIsEditModalOpen(false)}
-                className="p-2 text-gray-400 hover:text-black rounded-xl"
-              >
+              <button onClick={() => setIsEditModalOpen(false)} className="p-2 text-gray-400 hover:text-black rounded-xl">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             <form onSubmit={handleSaveProduct} className="p-6 space-y-5 max-h-[75vh] overflow-y-auto text-xs font-medium">
-              {/* Product Photo From Device Gallery Only (No Link Input) */}
+              {/* Product Photo From Device Gallery Only */}
               <div className="space-y-2">
                 <label className="block text-[11px] font-bold uppercase tracking-wider text-gray-700">
                   Product Photo <span className="text-red-500">*</span>
@@ -774,19 +1265,15 @@ export default function AdminDashboard() {
                   <div className="space-y-3">
                     <div className="rounded-2xl border border-gray-200 p-4 bg-gray-50 flex items-center gap-4">
                       <div className="w-24 h-24 bg-white rounded-2xl border border-gray-200 p-2 flex items-center justify-center shrink-0 overflow-hidden shadow-xs">
-                        <img
-                          src={formData.image}
-                          alt="Selected product"
-                          className="max-h-full max-w-full object-contain"
-                        />
+                        <img src={formatImageUrl(formData.image)} alt="Selected product" className="max-h-full max-w-full object-contain" />
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1.5 text-xs font-bold text-gray-900 mb-1">
                           <Check className="w-3.5 h-3.5 text-emerald-600" />
-                          <span>Photo Selected from Gallery</span>
+                          <span>Photo Ready for Firebase</span>
                         </div>
                         <p className="text-[11px] text-gray-500 mb-3">
-                          Ready for publishing. Tap below if you want to replace it.
+                          Uploaded to Firebase Storage and synchronized across the live store.
                         </p>
                         <div className="flex flex-wrap gap-2">
                           <button
@@ -796,11 +1283,11 @@ export default function AdminDashboard() {
                             className="px-3.5 py-1.5 bg-black hover:bg-neutral-800 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition active:scale-95 shadow-xs"
                           >
                             <ImagePlus className="w-3.5 h-3.5" />
-                            <span>{isProcessingPhoto ? 'Loading Photo...' : 'Change Photo from Gallery'}</span>
+                            <span>{isProcessingPhoto ? 'Uploading...' : 'Change Photo from Gallery'}</span>
                           </button>
                           <button
                             type="button"
-                            onClick={() => handleRemovePhoto(formData.image)}
+                            onClick={() => setFormData(prev => ({ ...prev, image: '', images: prev.images.filter(img => img !== prev.image) }))}
                             className="px-3 py-1.5 border border-red-200 text-red-600 hover:bg-red-50 rounded-xl text-xs font-semibold transition"
                           >
                             Remove
@@ -835,20 +1322,9 @@ export default function AdminDashboard() {
                                 formData.image === img ? 'border-black ring-2 ring-black/20' : 'border-gray-200 hover:border-gray-400'
                               }`}
                               onClick={() => setFormData(prev => ({ ...prev, image: img }))}
-                              title="Click to set as primary product photo"
+                              title="Click to set as primary photo"
                             >
-                              <img src={img} alt={`Gallery ${idx}`} className="w-full h-full object-contain" />
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleRemovePhoto(img);
-                                }}
-                                className="absolute top-1 right-1 w-4 h-4 bg-black/80 hover:bg-red-600 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition shadow-xs"
-                                title="Delete this photo"
-                              >
-                                <X className="w-2.5 h-2.5" />
-                              </button>
+                              <img src={formatImageUrl(img)} alt={`Gallery ${idx}`} className="w-full h-full object-contain" />
                             </div>
                           ))}
                         </div>
@@ -864,7 +1340,7 @@ export default function AdminDashboard() {
                       <ImageIcon className="w-7 h-7" />
                     </div>
                     <p className="text-sm font-black text-gray-900">
-                      {isProcessingPhoto ? 'Processing gallery photo...' : 'Tap to Select Photo from Gallery'}
+                      {isProcessingPhoto ? 'Uploading to Firebase Storage...' : 'Tap to Select Photo from Gallery'}
                     </p>
                     <p className="text-xs text-gray-500 mt-1">
                       Choose directly from your camera roll or photo library
@@ -877,7 +1353,7 @@ export default function AdminDashboard() {
                 )}
               </div>
 
-              {/* Name & Slug */}
+              {/* Title & Slug */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-gray-100">
                 <div>
                   <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">Product Title *</label>
@@ -916,10 +1392,10 @@ export default function AdminDashboard() {
               {/* Price, Original Price, Category */}
               <div className="grid grid-cols-3 gap-4">
                 <div>
-                  <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">Selling Price ($) *</label>
+                  <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">Selling Price (Rs.) *</label>
                   <input
                     type="number"
-                    step="0.01"
+                    step="1"
                     min="0"
                     required
                     value={formData.price}
@@ -929,50 +1405,22 @@ export default function AdminDashboard() {
                 </div>
 
                 <div>
-                  <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">Compare Price ($)</label>
+                  <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">Original Price (Rs.)</label>
                   <input
                     type="number"
-                    step="0.01"
+                    step="1"
                     min="0"
                     value={formData.originalPrice}
                     onChange={(e) => setFormData(prev => ({ ...prev, originalPrice: parseFloat(e.target.value) || 0 }))}
                     className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-black focus:outline-hidden"
                   />
                 </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">Category</label>
-                  <select
-                    value={formData.category}
-                    onChange={(e) => setFormData(prev => ({ ...prev, category: e.target.value }))}
-                    className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-black focus:outline-hidden"
-                  >
-                    <option value="Sports Nutrition">Sports Nutrition</option>
-                    <option value="Performance">Performance</option>
-                    <option value="Protein Spreads">Protein Spreads</option>
-                    <option value="Superfoods">Superfoods</option>
-                    <option value="Vitamins & Minerals">Vitamins & Minerals</option>
-                  </select>
-                </div>
               </div>
 
               {/* Stock Status & Quantity */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">Inventory Status</label>
-                  <select
-                    value={formData.stockStatus}
-                    onChange={(e) => setFormData(prev => ({ ...prev, stockStatus: e.target.value }))}
-                    className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-black focus:outline-hidden"
-                  >
-                    <option value="In Stock">In Stock</option>
-                    <option value="Low Stock">Low Stock</option>
-                    <option value="Out of Stock">Out of Stock</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">Available Units</label>
+                  <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">Stock Quantity</label>
                   <input
                     type="number"
                     min="0"
@@ -995,7 +1443,7 @@ export default function AdminDashboard() {
                 />
               </div>
 
-              {/* Key Benefits Tags */}
+              {/* Key Benefits */}
               <div>
                 <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">Key Benefits</label>
                 <div className="flex gap-2 mb-2">
@@ -1003,13 +1451,32 @@ export default function AdminDashboard() {
                     type="text"
                     value={formData.benefitInput}
                     onChange={(e) => setFormData(prev => ({ ...prev, benefitInput: e.target.value }))}
-                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddBenefit(); } }}
-                    placeholder="Type benefit and hit Enter or click Add"
-                    className="flex-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs focus:ring-2 focus:ring-black focus:outline-hidden"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        if (formData.benefitInput.trim()) {
+                          setFormData(prev => ({
+                            ...prev,
+                            keyBenefits: [...prev.keyBenefits, prev.benefitInput.trim()],
+                            benefitInput: ''
+                          }));
+                        }
+                      }
+                    }}
+                    placeholder="Type benefit and hit Enter"
+                    className="flex-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs"
                   />
                   <button
                     type="button"
-                    onClick={handleAddBenefit}
+                    onClick={() => {
+                      if (formData.benefitInput.trim()) {
+                        setFormData(prev => ({
+                          ...prev,
+                          keyBenefits: [...prev.keyBenefits, prev.benefitInput.trim()],
+                          benefitInput: ''
+                        }));
+                      }
+                    }}
                     className="px-3.5 py-2 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-xl font-bold text-xs"
                   >
                     Add
@@ -1018,56 +1485,17 @@ export default function AdminDashboard() {
 
                 <div className="flex flex-wrap gap-1.5">
                   {formData.keyBenefits.map((b, i) => (
-                    <span
-                      key={i}
-                      className="inline-flex items-center gap-1.5 bg-gray-100 text-gray-800 text-xs px-2.5 py-1 rounded-full font-medium"
-                    >
+                    <span key={i} className="inline-flex items-center gap-1.5 bg-gray-100 text-gray-800 text-xs px-2.5 py-1 rounded-full font-medium">
                       {b}
                       <button
                         type="button"
-                        onClick={() => handleRemoveBenefit(i)}
+                        onClick={() => setFormData(prev => ({ ...prev, keyBenefits: prev.keyBenefits.filter((_, idx) => idx !== i) }))}
                         className="text-gray-400 hover:text-red-500"
                       >
                         ×
                       </button>
                     </span>
                   ))}
-                </div>
-              </div>
-
-              {/* Nutritional Info, Ingredients, Usage */}
-              <div className="space-y-3 pt-2 border-t border-gray-100">
-                <div>
-                  <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">Nutritional Breakdown</label>
-                  <input
-                    type="text"
-                    value={formData.nutritionalInfo}
-                    onChange={(e) => setFormData(prev => ({ ...prev, nutritionalInfo: e.target.value }))}
-                    placeholder="Per 100g: 380 kcal | 26g Protein..."
-                    className="w-full px-3.5 py-2 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-black focus:outline-hidden"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">Ingredients</label>
-                  <input
-                    type="text"
-                    value={formData.ingredients}
-                    onChange={(e) => setFormData(prev => ({ ...prev, ingredients: e.target.value }))}
-                    placeholder="Rolled Oats, Whey Protein Isolate, Cocoa..."
-                    className="w-full px-3.5 py-2 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-black focus:outline-hidden"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">Usage Instructions</label>
-                  <input
-                    type="text"
-                    value={formData.usage}
-                    onChange={(e) => setFormData(prev => ({ ...prev, usage: e.target.value }))}
-                    placeholder="Mix 1 scoop with 200ml cold water..."
-                    className="w-full px-3.5 py-2 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-black focus:outline-hidden"
-                  />
                 </div>
               </div>
 
@@ -1085,7 +1513,7 @@ export default function AdminDashboard() {
                   disabled={isProcessingPhoto}
                   className="px-6 py-2.5 bg-black hover:bg-neutral-800 text-white font-bold rounded-2xl shadow-md transition active:scale-95 disabled:opacity-50"
                 >
-                  {editingProduct ? 'Save Changes' : 'Create Product'}
+                  {editingProduct ? 'Save Changes' : 'Publish Product'}
                 </button>
               </div>
             </form>
@@ -1093,7 +1521,217 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* Delete Confirmation Modal */}
+      {/* Banner Modal */}
+      {isBannerModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white max-w-md w-full rounded-3xl p-6 shadow-2xl border border-gray-100 space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-gray-100">
+              <h3 className="text-base font-black text-black">New Promotional Banner</h3>
+              <button onClick={() => setIsBannerModalOpen(false)} className="text-gray-400 hover:text-black">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveBanner} className="space-y-3 text-xs font-medium">
+              <div>
+                <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">Banner Title *</label>
+                <input
+                  type="text"
+                  required
+                  value={bannerFormData.title}
+                  onChange={(e) => setBannerFormData(prev => ({ ...prev, title: e.target.value }))}
+                  placeholder="e.g. Pure Fuel for Peak Performance"
+                  className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-black"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">Subtitle</label>
+                <input
+                  type="text"
+                  value={bannerFormData.subtitle}
+                  onChange={(e) => setBannerFormData(prev => ({ ...prev, subtitle: e.target.value }))}
+                  placeholder="e.g. Ultra-pure micronized formulations"
+                  className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-black"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">Banner Photo (From Gallery)</label>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => bannerPhotoInputRef.current?.click()}
+                    className="px-3.5 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-xl text-xs font-bold flex items-center gap-1.5"
+                  >
+                    <ImagePlus className="w-3.5 h-3.5" />
+                    <span>Choose from Gallery</span>
+                  </button>
+                  {bannerFormData.image && (
+                    <span className="text-xs text-emerald-600 font-bold flex items-center gap-1">
+                      <Check className="w-3.5 h-3.5" /> Photo Loaded
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              <div className="pt-3 flex justify-end gap-2 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => setIsBannerModalOpen(false)}
+                  className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-xl font-bold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-black text-white font-bold rounded-xl hover:bg-neutral-800"
+                >
+                  Save Banner
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Category Modal */}
+      {isCategoryModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white max-w-sm w-full rounded-3xl p-6 shadow-2xl border border-gray-100 space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-gray-100">
+              <h3 className="text-base font-black text-black">New Category</h3>
+              <button onClick={() => setIsCategoryModalOpen(false)} className="text-gray-400 hover:text-black">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveCategory} className="space-y-3 text-xs font-medium">
+              <div>
+                <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">Category Name *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Whey Isolates"
+                  value={categoryFormData.name}
+                  onChange={(e) => setCategoryFormData(prev => ({ ...prev, name: e.target.value }))}
+                  className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-black"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">Description</label>
+                <input
+                  type="text"
+                  placeholder="Short description"
+                  value={categoryFormData.description}
+                  onChange={(e) => setCategoryFormData(prev => ({ ...prev, description: e.target.value }))}
+                  className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-black"
+                />
+              </div>
+
+              <div className="pt-3 flex justify-end gap-2 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => setIsCategoryModalOpen(false)}
+                  className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-xl font-bold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-black text-white font-bold rounded-xl hover:bg-neutral-800"
+                >
+                  Add Category
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Coupon Modal */}
+      {isCouponModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white max-w-sm w-full rounded-3xl p-6 shadow-2xl border border-gray-100 space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-gray-100">
+              <h3 className="text-base font-black text-black">Create Discount Coupon</h3>
+              <button onClick={() => setIsCouponModalOpen(false)} className="text-gray-400 hover:text-black">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveCoupon} className="space-y-3 text-xs font-medium">
+              <div>
+                <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">Coupon Code *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. FLASH20"
+                  value={couponFormData.code}
+                  onChange={(e) => setCouponFormData(prev => ({ ...prev, code: e.target.value.toUpperCase() }))}
+                  className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl uppercase font-bold focus:outline-hidden focus:ring-2 focus:ring-black"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">Type</label>
+                  <select
+                    value={couponFormData.discountType}
+                    onChange={(e) => setCouponFormData(prev => ({ ...prev, discountType: e.target.value as 'percentage' | 'fixed' }))}
+                    className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl"
+                  >
+                    <option value="percentage">Percentage (%)</option>
+                    <option value="fixed">Fixed (Rs.)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">Discount Value (Rs./%)</label>
+                  <input
+                    type="number"
+                    min="1"
+                    required
+                    value={couponFormData.discountValue}
+                    onChange={(e) => setCouponFormData(prev => ({ ...prev, discountValue: parseFloat(e.target.value) || 0 }))}
+                    className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">Min. Order Amount (Rs.)</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={couponFormData.minOrderAmount}
+                  onChange={(e) => setCouponFormData(prev => ({ ...prev, minOrderAmount: parseFloat(e.target.value) || 0 }))}
+                  className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl"
+                />
+              </div>
+
+              <div className="pt-3 flex justify-end gap-2 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => setIsCouponModalOpen(false)}
+                  className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-xl font-bold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-black text-white font-bold rounded-xl hover:bg-neutral-800"
+                >
+                  Activate Coupon
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Dialog */}
       {isDeletingId && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white max-w-sm w-full rounded-3xl p-6 shadow-2xl border border-gray-100 space-y-4">
@@ -1101,9 +1739,9 @@ export default function AdminDashboard() {
               <Trash2 className="w-6 h-6" />
             </div>
             <div className="text-center">
-              <h4 className="text-base font-black text-black">Remove Product?</h4>
+              <h4 className="text-base font-black text-black">Confirm Deletion?</h4>
               <p className="text-xs text-gray-500 mt-1">
-                Are you sure you want to remove this product from the storefront catalog? This cannot be undone.
+                This item will be permanently removed from Firebase Firestore.
               </p>
             </div>
             <div className="flex gap-2 pt-2">
@@ -1114,7 +1752,7 @@ export default function AdminDashboard() {
                 Cancel
               </button>
               <button
-                onClick={() => handleDeleteProduct(isDeletingId)}
+                onClick={handleConfirmDelete}
                 className="flex-1 py-2.5 bg-red-600 text-white rounded-2xl text-xs font-bold hover:bg-red-700 transition"
               >
                 Confirm Delete

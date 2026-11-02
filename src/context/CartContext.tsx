@@ -1,6 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { db } from '../lib/firebase';
-import { collection, addDoc, doc, setDoc } from 'firebase/firestore';
+import { useStore } from './StoreContext';
 
 export interface CartProductItem {
   id: string;
@@ -20,12 +19,21 @@ interface CartContextType {
   isCartOpen: boolean;
   setIsCartOpen: (open: boolean) => void;
   totalCount: number;
+  subtotal: number;
+  deliveryCharge: number;
+  discountAmount: number;
   totalPrice: number;
+  appliedCoupon: string;
+  couponMessage: string;
+  applyCoupon: (code: string) => void;
+  removeCoupon: () => void;
   placeOrder: (customerDetails: {
     customerName: string;
     customerEmail: string;
     customerPhone: string;
     shippingAddress: string;
+    city?: string;
+    notes?: string;
     paymentMethod?: string;
   }) => Promise<string>;
 }
@@ -33,6 +41,8 @@ interface CartContextType {
 const CartContext = createContext<CartContextType | undefined>(undefined);
 
 export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { settings, validateCoupon, createOrder } = useStore();
+
   const [cart, setCart] = useState<CartProductItem[]>(() => {
     try {
       const saved = localStorage.getItem('fitful_cart');
@@ -43,6 +53,9 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   });
 
   const [isCartOpen, setIsCartOpen] = useState(false);
+  const [appliedCoupon, setAppliedCoupon] = useState<string>('');
+  const [discountAmount, setDiscountAmount] = useState<number>(0);
+  const [couponMessage, setCouponMessage] = useState<string>('');
 
   useEffect(() => {
     try {
@@ -52,17 +65,19 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const addToCart = (product: any, customQty?: number) => {
     const qty = customQty !== undefined ? customQty : (product.quantity || 1);
+    const prodId = typeof product === 'string' ? product : product.id;
+
     setCart((prev) => {
-      const existing = prev.find((item) => item.id === product.id);
+      const existing = prev.find((item) => item.id === prodId);
       if (existing) {
         return prev.map((item) =>
-          item.id === product.id ? { ...item, quantity: item.quantity + qty } : item
+          item.id === prodId ? { ...item, quantity: item.quantity + qty } : item
         );
       } else {
         return [
           ...prev,
           {
-            id: product.id,
+            id: prodId,
             name: product.name || 'Supplement Product',
             price: Number(product.price) || 24.99,
             quantity: qty,
@@ -89,41 +104,92 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const clearCart = () => setCart([]);
+  const clearCart = () => {
+    setCart([]);
+    setAppliedCoupon('');
+    setDiscountAmount(0);
+    setCouponMessage('');
+  };
 
   const totalCount = cart.reduce((sum, item) => sum + item.quantity, 0);
-  const totalPrice = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  const subtotal = Number(cart.reduce((sum, item) => sum + item.price * item.quantity, 0).toFixed(2));
+
+  // Dynamic delivery charge from Firebase Store Settings
+  const deliveryCharge = (subtotal >= (settings?.freeDeliveryThreshold || 50) || subtotal === 0) 
+    ? 0 
+    : (settings?.deliveryCharge || 4.99);
+
+  // Recalculate discount if coupon applied
+  useEffect(() => {
+    if (appliedCoupon && subtotal > 0) {
+      const result = validateCoupon(appliedCoupon, subtotal);
+      if (result.valid) {
+        setDiscountAmount(result.discountAmount);
+        setCouponMessage(result.message);
+      } else {
+        setDiscountAmount(0);
+        setCouponMessage(result.message);
+      }
+    } else if (subtotal === 0) {
+      setDiscountAmount(0);
+    }
+  }, [appliedCoupon, subtotal, validateCoupon]);
+
+  const applyCoupon = (code: string) => {
+    const result = validateCoupon(code, subtotal);
+    if (result.valid) {
+      setAppliedCoupon(code.toUpperCase().trim());
+      setDiscountAmount(result.discountAmount);
+      setCouponMessage(result.message);
+    } else {
+      setCouponMessage(result.message);
+    }
+  };
+
+  const removeCoupon = () => {
+    setAppliedCoupon('');
+    setDiscountAmount(0);
+    setCouponMessage('');
+  };
+
+  const totalPrice = Number(Math.max(0, subtotal - discountAmount + deliveryCharge).toFixed(2));
 
   const placeOrder = async (customerDetails: {
     customerName: string;
     customerEmail: string;
     customerPhone: string;
     shippingAddress: string;
+    city?: string;
+    notes?: string;
     paymentMethod?: string;
   }): Promise<string> => {
-    const orderId = `ord-${Date.now().toString().slice(-6)}`;
-    const newOrder = {
-      id: orderId,
+    const orderNumber = await createOrder({
       customerName: customerDetails.customerName,
       customerEmail: customerDetails.customerEmail,
-      customerPhone: customerDetails.customerPhone || '',
+      customerPhone: customerDetails.customerPhone,
       shippingAddress: customerDetails.shippingAddress,
-      paymentMethod: customerDetails.paymentMethod || 'Cash on Delivery (COD)',
-      items: cart.map((i) => ({
+      city: customerDetails.city || '',
+      notes: customerDetails.notes || '',
+      items: cart.map(i => ({
         id: i.id,
         name: i.name,
         price: i.price,
         quantity: i.quantity,
-        image: i.image
+        image: i.image,
+        slug: i.slug
       })),
+      subtotal,
+      deliveryCharge,
+      discountAmount,
       totalAmount: totalPrice,
-      status: 'Pending',
-      createdAt: new Date().toISOString()
-    };
+      couponCode: appliedCoupon || undefined,
+      paymentMethod: customerDetails.paymentMethod || 'Cash on Delivery (COD)',
+      paymentStatus: 'Pending',
+      orderStatus: 'Pending'
+    });
 
-    await setDoc(doc(db, 'orders', orderId), newOrder);
     clearCart();
-    return orderId;
+    return orderNumber;
   };
 
   return (
@@ -137,7 +203,14 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isCartOpen,
         setIsCartOpen,
         totalCount,
+        subtotal,
+        deliveryCharge,
+        discountAmount,
         totalPrice,
+        appliedCoupon,
+        couponMessage,
+        applyCoupon,
+        removeCoupon,
         placeOrder
       }}
     >
