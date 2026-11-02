@@ -1,0 +1,67 @@
+export const products = [
+  { 
+    id: '1', 
+    slug: 'pintola-high-protein-oats', 
+    name: 'Pintola High Protein Oats', 
+    price: 24.99,
+    description: 'Delicious and nutritious oats packed with high-quality protein to kickstart your day.',
+    keyBenefits: ['High protein', 'No added sugar', 'Rich in fiber'],
+    nutritionalInfo: 'Per 100g: 380 kcal, 26g Protein, 5g Fiber',
+    ingredients: 'Rolled Oats, Whey Protein Concentrate, Cocoa Powder',
+    usage: 'Mix 50g with milk or water, cook for 3-5 minutes.',
+    stockStatus: 'In Stock',
+    images: ['/public/assets/aistudio/IMG_e9755086-1600-4fc3-b90a-e97667f39591_5ab03a1e.jpg']
+  },
+  { 
+    id: '2', 
+    slug: 'wellcore-creatine-monohydrate', 
+    name: 'Wellcore Creatine Monohydrate', 
+    price: 19.99,
+    description: 'Pure, micronized creatine monohydrate for enhanced strength and muscle power.',
+    keyBenefits: ['Enhanced strength', 'Muscle recovery', 'Micronized for better absorption'],
+    nutritionalInfo: 'Per Serving: 3g Creatine Monohydrate',
+    ingredients: '100% Creatine Monohydrate',
+    usage: 'Take 3g daily with water or juice.',
+    stockStatus: 'In Stock',
+    images: ['/public/assets/aistudio/images__2__3076b8c4.jpeg']
+  },
+  { 
+    id: '3', 
+    slug: 'kulfi-blast-peanut-butter', 
+    name: 'Kulfi Blast Peanut Butter', 
+    price: 12.99,
+    description: 'A unique fusion of traditional Kulfi flavor and creamy peanut butter.',
+    keyBenefits: ['Unique flavor', 'High protein', 'No palm oil'],
+    nutritionalInfo: 'Per 32g: 190 kcal, 8g Protein',
+    ingredients: 'Roasted Peanuts, Kulfi Flavor, Sugar, Salt',
+    usage: 'Spread on toast, add to smoothies, or eat directly.',
+    stockStatus: 'In Stock',
+    images: ['/public/assets/aistudio/61Z6RwyreWL_1a612f23.jpg']
+  },
+  { 
+    id: '4', 
+    slug: 'cookie-blast-peanut-butter', 
+    name: 'Cookie Blast Peanut Butter', 
+    price: 12.99,
+    description: 'Creamy peanut butter with crunchy cookie bits for a delightful treat.',
+    keyBenefits: ['Satisfying crunch', 'Great for snacking', 'No palm oil'],
+    nutritionalInfo: 'Per 32g: 200 kcal, 7g Protein',
+    ingredients: 'Roasted Peanuts, Cookie Pieces, Sugar, Salt',
+    usage: 'Spread on toast, use in baking, or eat directly.',
+    stockStatus: 'In Stock',
+    images: ['/public/assets/aistudio/images__3__689e8f19.jpeg']
+  },
+  { 
+    id: '5', 
+    slug: 'mango-chia-peanut-butter', 
+    name: 'Mango Chia Peanut Butter', 
+    price: 14.99,
+    description: 'An exotic blend of mango, chia seeds, and smooth peanut butter.',
+    keyBenefits: ['Rich in Omega-3', 'Exotic flavor', 'No palm oil'],
+    nutritionalInfo: 'Per 32g: 180 kcal, 7g Protein',
+    ingredients: 'Roasted Peanuts, Mango Pulp, Chia Seeds, Salt',
+    usage: 'Spread on toast, add to yogurt, or eat directly.',
+    stockStatus: 'In Stock',
+    images: ['/public/assets/aistudio/images__4__877d71a7.jpeg']
+  },
+];
