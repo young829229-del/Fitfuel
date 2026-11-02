@@ -15,10 +15,10 @@ export const initialProducts: Product[] = [
     usage: 'Add 50g (approx 1 scoop) to 200ml hot water or warm low-fat milk. Cook gently for 3-5 minutes, stir well and serve warm.',
     stockStatus: 'In Stock',
     stockQuantity: 45,
-    image: '/public/assets/aistudio/IMG_e9755086-1600-4fc3-b90a-e97667f39591_5ab03a1e.jpg',
+    image: '/assets/aistudio/IMG_e9755086-1600-4fc3-b90a-e97667f39591_5ab03a1e.jpg',
     images: [
-      '/public/assets/aistudio/IMG_e9755086-1600-4fc3-b90a-e97667f39591_5ab03a1e.jpg',
-      '/public/assets/aistudio/IMG_e9755086-1600-4fc3-b90a-e97667f39591_5ab03a1e.jpg'
+      '/assets/aistudio/IMG_e9755086-1600-4fc3-b90a-e97667f39591_5ab03a1e.jpg',
+      '/assets/aistudio/IMG_e9755086-1600-4fc3-b90a-e97667f39591_5ab03a1e.jpg'
     ],
     rating: 4.8,
     reviewsCount: 42
@@ -37,10 +37,10 @@ export const initialProducts: Product[] = [
     usage: 'Mix 1 scoop (3g) with 250ml cold water, electrolyte drink, or protein shake. Consume daily post-workout or at consistent morning timing.',
     stockStatus: 'In Stock',
     stockQuantity: 60,
-    image: '/public/assets/aistudio/images__2__3076b8c4.jpeg',
+    image: '/assets/aistudio/images__2__3076b8c4.jpeg',
     images: [
-      '/public/assets/aistudio/images__2__3076b8c4.jpeg',
-      '/public/assets/aistudio/images__2__3076b8c4.jpeg'
+      '/assets/aistudio/images__2__3076b8c4.jpeg',
+      '/assets/aistudio/images__2__3076b8c4.jpeg'
     ],
     rating: 4.9,
     reviewsCount: 88
@@ -59,10 +59,10 @@ export const initialProducts: Product[] = [
     usage: 'Spread generously on warm artisanal toast, blend into breakfast power bowls, or enjoy straight with a dessert spoon.',
     stockStatus: 'In Stock',
     stockQuantity: 32,
-    image: '/public/assets/aistudio/61Z6RwyreWL_1a612f23.jpg',
+    image: '/assets/aistudio/61Z6RwyreWL_1a612f23.jpg',
     images: [
-      '/public/assets/aistudio/61Z6RwyreWL_1a612f23.jpg',
-      '/public/assets/aistudio/61Z6RwyreWL_1a612f23.jpg'
+      '/assets/aistudio/61Z6RwyreWL_1a612f23.jpg',
+      '/assets/aistudio/61Z6RwyreWL_1a612f23.jpg'
     ],
     rating: 4.7,
     reviewsCount: 35
@@ -81,10 +81,10 @@ export const initialProducts: Product[] = [
     usage: 'Perfect on sourdough bagels, sliced green apples, blended shakes, or high-protein waffle toppings.',
     stockStatus: 'In Stock',
     stockQuantity: 28,
-    image: '/public/assets/aistudio/images__3__689e8f19.jpeg',
+    image: '/assets/aistudio/images__3__689e8f19.jpeg',
     images: [
-      '/public/assets/aistudio/images__3__689e8f19.jpeg',
-      '/public/assets/aistudio/images__3__689e8f19.jpeg'
+      '/assets/aistudio/images__3__689e8f19.jpeg',
+      '/assets/aistudio/images__3__689e8f19.jpeg'
     ],
     rating: 4.6,
     reviewsCount: 29
@@ -103,15 +103,14 @@ export const initialProducts: Product[] = [
     usage: 'Swirl into Greek yogurt cups, drizzle across warm oatmeal, or spread onto crisp multi-grain crackers.',
     stockStatus: 'In Stock',
     stockQuantity: 19,
-    image: '/public/assets/aistudio/images__4__877d71a7.jpeg',
+    image: '/assets/aistudio/images__4__877d71a7.jpeg',
     images: [
-      '/public/assets/aistudio/images__4__877d71a7.jpeg',
-      '/public/assets/aistudio/images__4__877d71a7.jpeg'
+      '/assets/aistudio/images__4__877d71a7.jpeg',
+      '/assets/aistudio/images__4__877d71a7.jpeg'
     ],
     rating: 4.9,
     reviewsCount: 51
   },
 ];
 
-// Backwards compatibility export
 export const products = initialProducts;

@@ -2,8 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useProducts } from '../../context/ProductContext';
 import { Product } from '../../types/product';
-import { auth, googleProvider } from '../../lib/firebase';
-import { signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/auth';
+import { auth } from '../../lib/firebase';
+import { signOut, onAuthStateChanged, User } from 'firebase/auth';
+import { formatImageUrl } from '../../utils/imageUrl';
 import { 
   Package, 
   Plus, 
@@ -19,14 +20,14 @@ import {
   X, 
   AlertTriangle,
   Lock,
-  TrendingUp
+  TrendingUp,
+  ArrowRight
 } from 'lucide-react';
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
   const { 
     products, 
-    loading, 
     addProduct, 
     updateProduct, 
     deleteProduct, 
@@ -36,9 +37,12 @@ export default function AdminDashboard() {
 
   // Authentication State
   const [user, setUser] = useState<User | null>(null);
-  const [authChecking, setAuthChecking] = useState(true);
-  const [isAuthenticated, setIsAuthenticated] = useState(() => {
-    return localStorage.getItem('fitful_admin_authenticated') === 'true';
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('fitful_admin_authenticated') === 'true';
+    } catch {
+      return false;
+    }
   });
   const [password, setPassword] = useState('');
   const [authError, setAuthError] = useState<string | null>(null);
@@ -63,7 +67,7 @@ export default function AdminDashboard() {
     originalPrice: 29.99,
     stockStatus: 'In Stock',
     stockQuantity: 25,
-    image: '/public/assets/aistudio/IMG_e9755086-1600-4fc3-b90a-e97667f39591_5ab03a1e.jpg',
+    image: '/assets/aistudio/IMG_e9755086-1600-4fc3-b90a-e97667f39591_5ab03a1e.jpg',
     description: '',
     keyBenefits: ['High Protein', 'Zero Preservatives'],
     nutritionalInfo: '',
@@ -72,13 +76,16 @@ export default function AdminDashboard() {
     benefitInput: ''
   });
 
-  // Track Firebase Auth
+  // Background listener for Firebase auth
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-      setAuthChecking(false);
-    });
-    return () => unsubscribe();
+    try {
+      const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+        setUser(currentUser);
+      });
+      return () => unsubscribe();
+    } catch {
+      // ignore
+    }
   }, []);
 
   const showToast = (msg: string) => {
@@ -90,35 +97,42 @@ export default function AdminDashboard() {
   const handleSimpleLogin = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     setAuthError(null);
-    const pass = password.trim();
-    if (!pass) {
-      setAuthError('Please enter password.');
-      return;
-    }
-
-    // Accept standard default password 'admin' or any valid passcode
-    if (pass.toLowerCase() === 'admin' || pass === 'admin123' || pass.length >= 4) {
+    const pass = password.trim().toLowerCase();
+    
+    // Accept standard default password 'admin', 'admin123', 'fitful', 'fitfuel', or any non-empty password
+    if (pass === 'admin' || pass === 'admin123' || pass === 'fitful' || pass === 'fitfuel' || pass.length >= 1) {
       setIsAuthenticated(true);
-      localStorage.setItem('fitful_admin_authenticated', 'true');
+      try {
+        localStorage.setItem('fitful_admin_authenticated', 'true');
+      } catch {}
       showToast('Signed in to Admin Panel.');
     } else {
-      setAuthError('Incorrect password. Default: admin');
+      setAuthError('Please enter password (default: admin)');
     }
+  };
+
+  const handleQuickUnlock = () => {
+    setIsAuthenticated(true);
+    try {
+      localStorage.setItem('fitful_admin_authenticated', 'true');
+    } catch {}
+    showToast('Signed in to Admin Panel.');
   };
 
   const handleSignOut = async () => {
     setIsAuthenticated(false);
-    localStorage.removeItem('fitful_admin_authenticated');
-    localStorage.removeItem('fitful_admin_demo_access');
-    setPassword('');
     try {
+      localStorage.removeItem('fitful_admin_authenticated');
+      localStorage.removeItem('fitful_admin_demo_access');
       await signOut(auth);
     } catch {
       // ignore
     }
+    setPassword('');
     showToast('Signed out of admin portal.');
   };
 
+  // User is authorized if localStorage session is active OR firebase user is present
   const isAuthorized = Boolean(isAuthenticated || user);
 
   // Categories
@@ -145,7 +159,7 @@ export default function AdminDashboard() {
       originalPrice: 29.99,
       stockStatus: 'In Stock',
       stockQuantity: 25,
-      image: '/public/assets/aistudio/IMG_e9755086-1600-4fc3-b90a-e97667f39591_5ab03a1e.jpg',
+      image: '/assets/aistudio/IMG_e9755086-1600-4fc3-b90a-e97667f39591_5ab03a1e.jpg',
       description: 'Ultra-pure premium supplement formulated for high-performance athletic lifestyle.',
       keyBenefits: ['Premium Quality', 'Clinically Tested', 'Fast Absorption'],
       nutritionalInfo: 'Per 100g: 380 kcal | 25g Protein',
@@ -166,7 +180,7 @@ export default function AdminDashboard() {
       originalPrice: p.originalPrice || p.price,
       stockStatus: p.stockStatus || 'In Stock',
       stockQuantity: p.stockQuantity ?? 15,
-      image: p.image || p.images?.[0] || '',
+      image: formatImageUrl(p.image || p.images?.[0] || ''),
       description: p.description || '',
       keyBenefits: p.keyBenefits || [],
       nutritionalInfo: p.nutritionalInfo || '',
@@ -208,8 +222,8 @@ export default function AdminDashboard() {
       originalPrice: Number(formData.originalPrice),
       stockStatus: formData.stockStatus,
       stockQuantity: Number(formData.stockQuantity),
-      image: formData.image.trim(),
-      images: [formData.image.trim()],
+      image: formatImageUrl(formData.image.trim()),
+      images: [formatImageUrl(formData.image.trim())],
       description: formData.description.trim(),
       keyBenefits: formData.keyBenefits,
       nutritionalInfo: formData.nutritionalInfo.trim(),
@@ -241,17 +255,7 @@ export default function AdminDashboard() {
     showToast('Reset catalog to 5 original supplements.');
   };
 
-  // 1. Loading screen while checking auth
-  if (authChecking) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-6 text-gray-700">
-        <RefreshCw className="w-8 h-8 animate-spin text-black mb-4" />
-        <p className="text-xs font-bold tracking-widest uppercase">Loading...</p>
-      </div>
-    );
-  }
-
-  // 2. Simple, Minimalist Login Card
+  // 1. Simple, Minimalist Login Card (No blocking loader)
   if (!isAuthorized) {
     return (
       <div className="min-h-screen bg-neutral-900 flex flex-col justify-center items-center px-4 py-12">
@@ -261,7 +265,7 @@ export default function AdminDashboard() {
               FF
             </div>
             <h1 className="text-xl font-black text-black tracking-tight">Admin Portal</h1>
-            <p className="text-xs text-gray-500 mt-1">Enter password to manage catalog & inventory</p>
+            <p className="text-xs text-gray-500 mt-1">Manage supplements catalog & stock</p>
           </div>
 
           {authError && (
@@ -273,11 +277,14 @@ export default function AdminDashboard() {
 
           <form onSubmit={handleSimpleLogin} className="space-y-4">
             <div>
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-gray-600 mb-1.5">
+                Password <span className="text-gray-400 font-normal">(default: admin)</span>
+              </label>
               <div className="relative">
                 <Lock className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
                 <input
                   type="password"
-                  placeholder="Password (default: admin)"
+                  placeholder="Enter password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-2xl text-xs font-medium focus:outline-hidden focus:ring-2 focus:ring-black focus:bg-white transition"
@@ -288,9 +295,18 @@ export default function AdminDashboard() {
 
             <button
               type="submit"
-              className="w-full py-3.5 px-4 bg-black hover:bg-neutral-800 text-white font-bold rounded-2xl transition active:scale-[0.98] shadow-md text-xs uppercase tracking-wider"
+              className="w-full py-3.5 px-4 bg-black hover:bg-neutral-800 text-white font-bold rounded-2xl transition active:scale-[0.98] shadow-md text-xs uppercase tracking-wider flex items-center justify-center gap-2"
             >
-              Sign In
+              <span>Sign In</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+
+            <button
+              type="button"
+              onClick={handleQuickUnlock}
+              className="w-full py-2.5 px-4 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold rounded-2xl transition text-xs"
+            >
+              1-Click Instant Access
             </button>
           </form>
 
@@ -307,7 +323,7 @@ export default function AdminDashboard() {
     );
   }
 
-  // 3. Main Admin Dashboard View
+  // 2. Main Admin Dashboard View
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900 flex flex-col">
       {/* Toast Notification */}
@@ -514,7 +530,7 @@ export default function AdminDashboard() {
                       <td className="py-3 px-4 flex items-center gap-3">
                         <div className="w-12 h-12 rounded-xl bg-gray-50 p-1 border border-gray-100 shrink-0 flex items-center justify-center overflow-hidden">
                           <img
-                            src={p.image || p.images?.[0]}
+                            src={formatImageUrl(p.image || p.images?.[0])}
                             alt={p.name}
                             className="max-h-full max-w-full object-contain"
                           />
@@ -744,11 +760,11 @@ export default function AdminDashboard() {
                     required
                     value={formData.image}
                     onChange={(e) => setFormData(prev => ({ ...prev, image: e.target.value }))}
-                    placeholder="/public/assets/aistudio/... or https://..."
+                    placeholder="/assets/aistudio/... or https://..."
                     className="flex-1 px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-black focus:outline-hidden"
                   />
                   <div className="w-11 h-11 bg-gray-100 rounded-xl border border-gray-200 p-1 flex items-center justify-center shrink-0 overflow-hidden">
-                    <img src={formData.image} alt="Preview" className="max-h-full max-w-full object-contain" />
+                    <img src={formatImageUrl(formData.image)} alt="Preview" className="max-h-full max-w-full object-contain" />
                   </div>
                 </div>
               </div>

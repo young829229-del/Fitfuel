@@ -11,6 +11,7 @@ import {
   updateDoc 
 } from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '../lib/firestoreErrors';
+import { formatImageUrl } from '../utils/imageUrl';
 
 interface ProductContextType {
   products: Product[];
@@ -76,10 +77,10 @@ export const ProductProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 usage: data.usage || '',
                 stockStatus: data.stockStatus || 'In Stock',
                 stockQuantity: typeof data.stockQuantity === 'number' ? data.stockQuantity : 10,
-                image: data.image || data.images?.[0] || '/public/assets/aistudio/IMG_e9755086-1600-4fc3-b90a-e97667f39591_5ab03a1e.jpg',
+                image: formatImageUrl(data.image || data.images?.[0]),
                 images: Array.isArray(data.images) && data.images.length > 0 
-                  ? data.images 
-                  : [data.image || '/public/assets/aistudio/IMG_e9755086-1600-4fc3-b90a-e97667f39591_5ab03a1e.jpg'],
+                  ? data.images.map((img: string) => formatImageUrl(img))
+                  : [formatImageUrl(data.image)],
                 rating: data.rating || 4.8,
                 reviewsCount: data.reviewsCount || 25,
                 updatedAt: data.updatedAt || new Date().toISOString()
@@ -143,8 +144,8 @@ export const ProductProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const newProduct: Product = {
       ...productData,
       id: newId,
-      image: productData.image || productData.images?.[0] || '/public/assets/aistudio/IMG_e9755086-1600-4fc3-b90a-e97667f39591_5ab03a1e.jpg',
-      images: productData.images?.length ? productData.images : [productData.image],
+      image: formatImageUrl(productData.image || productData.images?.[0]),
+      images: productData.images?.length ? productData.images.map(img => formatImageUrl(img)) : [formatImageUrl(productData.image)],
       updatedAt: new Date().toISOString()
     };
 

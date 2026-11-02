@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useNavigate } from 'react-router-dom';
 import { useProducts } from './context/ProductContext';
+import { formatImageUrl } from './utils/imageUrl';
 
 export default function ProductHero() {
   const { products } = useProducts();
@@ -34,7 +35,7 @@ export default function ProductHero() {
     <div className="relative w-full h-screen flex flex-col items-center justify-center bg-white overflow-hidden pt-24" onWheel={handleWheel}>
       {/* Brand Logo */}
       <img 
-        src="/public/assets/aistudio/tiktok_video_dt6Np_d66a1b63.jpeg" 
+        src="/assets/aistudio/tiktok_video_dt6Np_d66a1b63.jpeg" 
         alt="FitFul Nepal Logo" 
         className="absolute top-4 left-1/2 -translate-x-1/2 w-12 md:w-16 z-20 rounded-full border border-gray-200 shadow-md" 
       />
@@ -107,7 +108,7 @@ export default function ProductHero() {
                         e.currentTarget.style.transform = `perspective(1000px) rotateY(0deg) rotateX(0deg)`;
                     }}
                   >
-                    <img src={product.image || product.images?.[0]} alt={product.name} className="w-full h-full object-contain" />
+                    <img src={formatImageUrl(product.image || product.images?.[0])} alt={product.name} className="w-full h-full object-contain" />
                   </motion.div>
                 </div>
                 {/* Name and Price */}

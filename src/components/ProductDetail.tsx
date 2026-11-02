@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 import { useProducts } from '../context/ProductContext';
 import { useCart } from '../context/CartContext';
 import { ArrowLeft, Check, Star } from 'lucide-react';
+import { formatImageUrl } from '../utils/imageUrl';
 
 export default function ProductDetail() {
   const { slug } = useParams<{ slug: string }>();
@@ -102,7 +103,7 @@ export default function ProductDetail() {
         <div className="md:col-span-5 flex flex-col gap-4">
           <div className="flex items-center justify-center w-full min-h-[350px]">
             <img 
-              src={currentImage} 
+              src={formatImageUrl(currentImage)} 
               alt={product.name} 
               className="max-w-full h-auto object-contain max-h-[50vh] md:max-h-[70vh] drop-shadow-2xl transition duration-200" 
             />
@@ -120,7 +121,7 @@ export default function ProductDetail() {
                       : 'border-gray-200 hover:border-gray-400'
                   }`}
                 >
-                  <img src={img} alt={`${product.name} thumbnail ${i}`} className="w-full h-full object-contain" />
+                  <img src={formatImageUrl(img)} alt={`${product.name} thumbnail ${i}`} className="w-full h-full object-contain" />
                 </button>
               ))}
             </div>
@@ -263,7 +264,7 @@ export default function ProductDetail() {
               >
                 <div className="bg-gray-50 rounded-3xl p-6 h-52 flex items-center justify-center mb-4 group-hover:bg-gray-100 transition">
                   <img 
-                    src={p.image || p.images?.[0]} 
+                    src={formatImageUrl(p.image || p.images?.[0])} 
                     alt={p.name} 
                     className="h-full object-contain drop-shadow-md group-hover:scale-105 transition duration-300" 
                   />
