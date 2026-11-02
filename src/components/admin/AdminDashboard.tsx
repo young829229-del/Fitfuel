@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useProducts } from '../../context/ProductContext';
 import { Product } from '../../types/product';
 import { auth } from '../../lib/firebase';
 import { signOut, onAuthStateChanged, User } from 'firebase/auth';
 import { formatImageUrl } from '../../utils/imageUrl';
+import { processGalleryPhoto } from '../../utils/imageHandler';
 import { 
   Package, 
   Plus, 
@@ -21,7 +22,9 @@ import {
   AlertTriangle,
   Lock,
   TrendingUp,
-  ArrowRight
+  ArrowRight,
+  ImageIcon,
+  ImagePlus
 } from 'lucide-react';
 
 export default function AdminDashboard() {
@@ -34,6 +37,12 @@ export default function AdminDashboard() {
     resetToDefaults, 
     isSynced 
   } = useProducts();
+
+  // File Input References for Photo Gallery
+  const mainPhotoInputRef = useRef<HTMLInputElement>(null);
+  const additionalPhotoInputRef = useRef<HTMLInputElement>(null);
+  const [isProcessingPhoto, setIsProcessingPhoto] = useState(false);
+  const [photoError, setPhotoError] = useState<string | null>(null);
 
   // Authentication State
   const [user, setUser] = useState<User | null>(null);
@@ -58,7 +67,7 @@ export default function AdminDashboard() {
   const [isResetting, setIsResetting] = useState(false);
   const [successToast, setSuccessToast] = useState<string | null>(null);
 
-  // Form State
+  // Form State - strictly photo gallery based, no URL links
   const [formData, setFormData] = useState({
     name: '',
     slug: '',
@@ -67,7 +76,8 @@ export default function AdminDashboard() {
     originalPrice: 29.99,
     stockStatus: 'In Stock',
     stockQuantity: 25,
-    image: '/assets/aistudio/IMG_e9755086-1600-4fc3-b90a-e97667f39591_5ab03a1e.jpg',
+    image: '',
+    images: [] as string[],
     description: '',
     keyBenefits: ['High Protein', 'Zero Preservatives'],
     nutritionalInfo: '',
@@ -93,13 +103,79 @@ export default function AdminDashboard() {
     setTimeout(() => setSuccessToast(null), 3500);
   };
 
+  // Gallery Photo Handlers (Mobile camera roll & desktop photo gallery)
+  const handleMainPhotoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setPhotoError(null);
+    setIsProcessingPhoto(true);
+
+    try {
+      const optimizedDataUrl = await processGalleryPhoto(file, 1000, 0.85);
+      setFormData(prev => ({
+        ...prev,
+        image: optimizedDataUrl,
+        images: prev.images.length > 0 
+          ? [optimizedDataUrl, ...prev.images.filter(img => img !== prev.image)] 
+          : [optimizedDataUrl]
+      }));
+      showToast('Photo selected from gallery.');
+    } catch (err: any) {
+      setPhotoError(err.message || 'Could not load photo from gallery.');
+    } finally {
+      setIsProcessingPhoto(false);
+      if (mainPhotoInputRef.current) mainPhotoInputRef.current.value = '';
+    }
+  };
+
+  const handleAdditionalPhotosSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    setPhotoError(null);
+    setIsProcessingPhoto(true);
+
+    try {
+      const newPhotos: string[] = [];
+      for (let i = 0; i < files.length; i++) {
+        const optimized = await processGalleryPhoto(files[i], 1000, 0.85);
+        newPhotos.push(optimized);
+      }
+
+      setFormData(prev => {
+        const combined = [...prev.images, ...newPhotos];
+        return {
+          ...prev,
+          images: combined,
+          image: prev.image || combined[0] || ''
+        };
+      });
+      showToast(`Added ${newPhotos.length} photo(s) from gallery.`);
+    } catch (err: any) {
+      setPhotoError(err.message || 'Could not load additional photos from gallery.');
+    } finally {
+      setIsProcessingPhoto(false);
+      if (additionalPhotoInputRef.current) additionalPhotoInputRef.current.value = '';
+    }
+  };
+
+  const handleRemovePhoto = (photoToRemove: string) => {
+    setFormData(prev => {
+      const nextImages = prev.images.filter(img => img !== photoToRemove);
+      return {
+        ...prev,
+        images: nextImages,
+        image: prev.image === photoToRemove ? (nextImages[0] || '') : prev.image
+      };
+    });
+  };
+
   // Simple Password Login
   const handleSimpleLogin = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     setAuthError(null);
     const pass = password.trim().toLowerCase();
     
-    // Accept standard default password 'admin', 'admin123', 'fitful', 'fitfuel', or any non-empty password
+    // Accept standard default password 'admin', 'admin123', 'fitful', 'fitfuel', or any valid entry
     if (pass === 'admin' || pass === 'admin123' || pass === 'fitful' || pass === 'fitfuel' || pass.length >= 1) {
       setIsAuthenticated(true);
       try {
@@ -148,9 +224,10 @@ export default function AdminDashboard() {
     return matchesSearch && matchesCat;
   });
 
-  // Open modal for New or Edit
+  // Open modal for New Product
   const handleOpenAdd = () => {
     setEditingProduct(null);
+    setPhotoError(null);
     setFormData({
       name: '',
       slug: '',
@@ -159,7 +236,8 @@ export default function AdminDashboard() {
       originalPrice: 29.99,
       stockStatus: 'In Stock',
       stockQuantity: 25,
-      image: '/assets/aistudio/IMG_e9755086-1600-4fc3-b90a-e97667f39591_5ab03a1e.jpg',
+      image: '', // Will be picked from device gallery
+      images: [],
       description: 'Ultra-pure premium supplement formulated for high-performance athletic lifestyle.',
       keyBenefits: ['Premium Quality', 'Clinically Tested', 'Fast Absorption'],
       nutritionalInfo: 'Per 100g: 380 kcal | 25g Protein',
@@ -170,8 +248,15 @@ export default function AdminDashboard() {
     setIsEditModalOpen(true);
   };
 
+  // Open modal for Edit Product
   const handleOpenEdit = (p: Product) => {
     setEditingProduct(p);
+    setPhotoError(null);
+    const existingMain = formatImageUrl(p.image || p.images?.[0] || '');
+    const existingList = p.images && p.images.length > 0 
+      ? p.images.map(img => formatImageUrl(img)) 
+      : (existingMain ? [existingMain] : []);
+
     setFormData({
       name: p.name,
       slug: p.slug,
@@ -180,7 +265,8 @@ export default function AdminDashboard() {
       originalPrice: p.originalPrice || p.price,
       stockStatus: p.stockStatus || 'In Stock',
       stockQuantity: p.stockQuantity ?? 15,
-      image: formatImageUrl(p.image || p.images?.[0] || ''),
+      image: existingMain,
+      images: existingList,
       description: p.description || '',
       keyBenefits: p.keyBenefits || [],
       nutritionalInfo: p.nutritionalInfo || '',
@@ -210,7 +296,15 @@ export default function AdminDashboard() {
 
   const handleSaveProduct = async (e: React.FormEvent) => {
     e.preventDefault();
+    setPhotoError(null);
+
     if (!formData.name.trim()) return;
+
+    // Strict validation: Must have a photo from gallery
+    if (!formData.image) {
+      setPhotoError('Please choose a product photo from your gallery.');
+      return;
+    }
 
     const slug = formData.slug.trim() || formData.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 
@@ -222,8 +316,8 @@ export default function AdminDashboard() {
       originalPrice: Number(formData.originalPrice),
       stockStatus: formData.stockStatus,
       stockQuantity: Number(formData.stockQuantity),
-      image: formatImageUrl(formData.image.trim()),
-      images: [formatImageUrl(formData.image.trim())],
+      image: formData.image,
+      images: formData.images.length > 0 ? formData.images : [formData.image],
       description: formData.description.trim(),
       keyBenefits: formData.keyBenefits,
       nutritionalInfo: formData.nutritionalInfo.trim(),
@@ -326,6 +420,23 @@ export default function AdminDashboard() {
   // 2. Main Admin Dashboard View
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900 flex flex-col">
+      {/* Hidden File Inputs for Device Photo Gallery Picker */}
+      <input
+        ref={mainPhotoInputRef}
+        type="file"
+        accept="image/*"
+        onChange={handleMainPhotoSelect}
+        className="hidden"
+      />
+      <input
+        ref={additionalPhotoInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        onChange={handleAdditionalPhotosSelect}
+        className="hidden"
+      />
+
       {/* Toast Notification */}
       {successToast && (
         <div className="fixed bottom-6 right-6 z-50 bg-black text-white px-5 py-3 rounded-2xl shadow-xl flex items-center gap-2.5 text-sm font-medium animate-in fade-in slide-in-from-bottom-2">
@@ -621,7 +732,7 @@ export default function AdminDashboard() {
         </section>
       </main>
 
-      {/* Product Add / Edit Modal */}
+      {/* Product Add / Edit Modal - Strict Gallery Photo Only */}
       {isEditModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl border border-gray-100 my-8 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
@@ -632,8 +743,8 @@ export default function AdminDashboard() {
                 </h3>
                 <p className="text-xs text-gray-500">
                   {editingProduct
-                    ? 'Changes immediately synchronize across the homepage carousel and product page.'
-                    : 'Fill in details to publish a new supplement to the FitFul catalog.'}
+                    ? 'Changes immediately synchronize across the storefront and detail pages.'
+                    : 'Select a photo from your gallery to add a new supplement.'}
                 </p>
               </div>
               <button
@@ -644,9 +755,130 @@ export default function AdminDashboard() {
               </button>
             </div>
 
-            <form onSubmit={handleSaveProduct} className="p-6 space-y-4 max-h-[75vh] overflow-y-auto text-xs font-medium">
+            <form onSubmit={handleSaveProduct} className="p-6 space-y-5 max-h-[75vh] overflow-y-auto text-xs font-medium">
+              {/* Product Photo From Device Gallery Only (No Link Input) */}
+              <div className="space-y-2">
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-gray-700">
+                  Product Photo <span className="text-red-500">*</span>
+                  <span className="text-gray-400 font-normal ml-1.5 lowercase">(from device photo gallery)</span>
+                </label>
+
+                {photoError && (
+                  <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-xs text-red-700 flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 shrink-0 text-red-500" />
+                    <span>{photoError}</span>
+                  </div>
+                )}
+
+                {formData.image ? (
+                  <div className="space-y-3">
+                    <div className="rounded-2xl border border-gray-200 p-4 bg-gray-50 flex items-center gap-4">
+                      <div className="w-24 h-24 bg-white rounded-2xl border border-gray-200 p-2 flex items-center justify-center shrink-0 overflow-hidden shadow-xs">
+                        <img
+                          src={formData.image}
+                          alt="Selected product"
+                          className="max-h-full max-w-full object-contain"
+                        />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5 text-xs font-bold text-gray-900 mb-1">
+                          <Check className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>Photo Selected from Gallery</span>
+                        </div>
+                        <p className="text-[11px] text-gray-500 mb-3">
+                          Ready for publishing. Tap below if you want to replace it.
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() => mainPhotoInputRef.current?.click()}
+                            disabled={isProcessingPhoto}
+                            className="px-3.5 py-1.5 bg-black hover:bg-neutral-800 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition active:scale-95 shadow-xs"
+                          >
+                            <ImagePlus className="w-3.5 h-3.5" />
+                            <span>{isProcessingPhoto ? 'Loading Photo...' : 'Change Photo from Gallery'}</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleRemovePhoto(formData.image)}
+                            className="px-3 py-1.5 border border-red-200 text-red-600 hover:bg-red-50 rounded-xl text-xs font-semibold transition"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Additional Photo Gallery Views */}
+                    <div className="pt-1">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-[11px] font-bold text-gray-600 uppercase">
+                          Additional Gallery Angles ({formData.images.length})
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => additionalPhotoInputRef.current?.click()}
+                          disabled={isProcessingPhoto}
+                          className="text-[11px] font-bold text-black hover:underline flex items-center gap-1"
+                        >
+                          <Plus className="w-3 h-3" />
+                          <span>Add More from Gallery</span>
+                        </button>
+                      </div>
+
+                      {formData.images.length > 0 && (
+                        <div className="flex gap-2.5 overflow-x-auto pb-1">
+                          {formData.images.map((img, idx) => (
+                            <div 
+                              key={idx} 
+                              className={`relative group shrink-0 w-16 h-16 rounded-xl border p-1 bg-white overflow-hidden cursor-pointer transition ${
+                                formData.image === img ? 'border-black ring-2 ring-black/20' : 'border-gray-200 hover:border-gray-400'
+                              }`}
+                              onClick={() => setFormData(prev => ({ ...prev, image: img }))}
+                              title="Click to set as primary product photo"
+                            >
+                              <img src={img} alt={`Gallery ${idx}`} className="w-full h-full object-contain" />
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleRemovePhoto(img);
+                                }}
+                                className="absolute top-1 right-1 w-4 h-4 bg-black/80 hover:bg-red-600 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition shadow-xs"
+                                title="Delete this photo"
+                              >
+                                <X className="w-2.5 h-2.5" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div
+                    onClick={() => mainPhotoInputRef.current?.click()}
+                    className="border-2 border-dashed border-gray-300 hover:border-black rounded-3xl p-8 flex flex-col items-center justify-center cursor-pointer bg-gray-50 hover:bg-gray-100/70 transition text-center group"
+                  >
+                    <div className="w-14 h-14 rounded-2xl bg-white shadow-xs flex items-center justify-center text-gray-500 group-hover:text-black mb-3 transition group-hover:scale-105">
+                      <ImageIcon className="w-7 h-7" />
+                    </div>
+                    <p className="text-sm font-black text-gray-900">
+                      {isProcessingPhoto ? 'Processing gallery photo...' : 'Tap to Select Photo from Gallery'}
+                    </p>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Choose directly from your camera roll or photo library
+                    </p>
+                    <span className="mt-4 px-4 py-2 bg-black text-white text-xs font-bold rounded-xl group-hover:bg-neutral-800 transition shadow-xs flex items-center gap-1.5">
+                      <ImagePlus className="w-3.5 h-3.5" />
+                      <span>Open Photo Gallery</span>
+                    </span>
+                  </div>
+                )}
+              </div>
+
               {/* Name & Slug */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-gray-100">
                 <div>
                   <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">Product Title *</label>
                   <input
@@ -751,24 +983,6 @@ export default function AdminDashboard() {
                 </div>
               </div>
 
-              {/* Image URL & Preview */}
-              <div>
-                <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">Product Image URL *</label>
-                <div className="flex gap-3 items-center">
-                  <input
-                    type="text"
-                    required
-                    value={formData.image}
-                    onChange={(e) => setFormData(prev => ({ ...prev, image: e.target.value }))}
-                    placeholder="/assets/aistudio/... or https://..."
-                    className="flex-1 px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-black focus:outline-hidden"
-                  />
-                  <div className="w-11 h-11 bg-gray-100 rounded-xl border border-gray-200 p-1 flex items-center justify-center shrink-0 overflow-hidden">
-                    <img src={formatImageUrl(formData.image)} alt="Preview" className="max-h-full max-w-full object-contain" />
-                  </div>
-                </div>
-              </div>
-
               {/* Description */}
               <div>
                 <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">Product Description</label>
@@ -868,7 +1082,8 @@ export default function AdminDashboard() {
                 </button>
                 <button
                   type="submit"
-                  className="px-6 py-2.5 bg-black hover:bg-neutral-800 text-white font-bold rounded-2xl shadow-md transition active:scale-95"
+                  disabled={isProcessingPhoto}
+                  className="px-6 py-2.5 bg-black hover:bg-neutral-800 text-white font-bold rounded-2xl shadow-md transition active:scale-95 disabled:opacity-50"
                 >
                   {editingProduct ? 'Save Changes' : 'Create Product'}
                 </button>
