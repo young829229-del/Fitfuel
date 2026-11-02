@@ -1,6 +1,6 @@
 {
-  "name": "",
-  "description": "",
+  "name": "FitFul Nepal - Premium Supplements",
+  "description": "Editorial ecommerce showcase and supplement store with interactive 3D display, individual product detail pages, and administrative management.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

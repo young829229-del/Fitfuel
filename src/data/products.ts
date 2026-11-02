@@ -1,67 +1,117 @@
-export const products = [
+import { Product } from '../types/product';
+
+export const initialProducts: Product[] = [
   { 
     id: '1', 
     slug: 'pintola-high-protein-oats', 
     name: 'Pintola High Protein Oats', 
+    category: 'Sports Nutrition',
     price: 24.99,
-    description: 'Delicious and nutritious oats packed with high-quality protein to kickstart your day.',
-    keyBenefits: ['High protein', 'No added sugar', 'Rich in fiber'],
-    nutritionalInfo: 'Per 100g: 380 kcal, 26g Protein, 5g Fiber',
-    ingredients: 'Rolled Oats, Whey Protein Concentrate, Cocoa Powder',
-    usage: 'Mix 50g with milk or water, cook for 3-5 minutes.',
+    originalPrice: 29.99,
+    description: 'Delicious and nutritious rolled oats fortified with ultra-pure whey protein isolate to fuel morning vitality and long-lasting muscle stamina.',
+    keyBenefits: ['26g Protein per 100g', 'No added sugar & zero preservatives', 'High soluble dietary fiber', 'Rich dark cocoa flavor'],
+    nutritionalInfo: 'Per 100g: 380 kcal | 26g Protein | 54g Carbohydrates | 5g Fiber | 6g Healthy Fats',
+    ingredients: '100% Whole Grain Rolled Oats, Whey Protein Isolate, Alkalized Cocoa Powder, Natural Monk Fruit Extract',
+    usage: 'Add 50g (approx 1 scoop) to 200ml hot water or warm low-fat milk. Cook gently for 3-5 minutes, stir well and serve warm.',
     stockStatus: 'In Stock',
-    images: ['/public/assets/aistudio/IMG_e9755086-1600-4fc3-b90a-e97667f39591_5ab03a1e.jpg']
+    stockQuantity: 45,
+    image: '/public/assets/aistudio/IMG_e9755086-1600-4fc3-b90a-e97667f39591_5ab03a1e.jpg',
+    images: [
+      '/public/assets/aistudio/IMG_e9755086-1600-4fc3-b90a-e97667f39591_5ab03a1e.jpg',
+      '/public/assets/aistudio/IMG_e9755086-1600-4fc3-b90a-e97667f39591_5ab03a1e.jpg'
+    ],
+    rating: 4.8,
+    reviewsCount: 42
   },
   { 
     id: '2', 
     slug: 'wellcore-creatine-monohydrate', 
     name: 'Wellcore Creatine Monohydrate', 
+    category: 'Performance',
     price: 19.99,
-    description: 'Pure, micronized creatine monohydrate for enhanced strength and muscle power.',
-    keyBenefits: ['Enhanced strength', 'Muscle recovery', 'Micronized for better absorption'],
-    nutritionalInfo: 'Per Serving: 3g Creatine Monohydrate',
-    ingredients: '100% Creatine Monohydrate',
-    usage: 'Take 3g daily with water or juice.',
+    originalPrice: 24.99,
+    description: '100% ultra-pure micronized creatine monohydrate engineered for rapid intracellular ATP regeneration, explosive power, and lean muscle mass acceleration.',
+    keyBenefits: ['Micronized 200 Mesh for effortless solubility', 'Clinically proven cellular ATP replenishment', 'Zero fillers, zero artificial sweeteners', 'Supports cognitive clarity and physical endurance'],
+    nutritionalInfo: 'Per Serving (3g): Creatine Monohydrate 3000mg | Zero Calories | Zero Sugars',
+    ingredients: '100% Ultra-Micronized Pharmaceutical Grade Creatine Monohydrate',
+    usage: 'Mix 1 scoop (3g) with 250ml cold water, electrolyte drink, or protein shake. Consume daily post-workout or at consistent morning timing.',
     stockStatus: 'In Stock',
-    images: ['/public/assets/aistudio/images__2__3076b8c4.jpeg']
+    stockQuantity: 60,
+    image: '/public/assets/aistudio/images__2__3076b8c4.jpeg',
+    images: [
+      '/public/assets/aistudio/images__2__3076b8c4.jpeg',
+      '/public/assets/aistudio/images__2__3076b8c4.jpeg'
+    ],
+    rating: 4.9,
+    reviewsCount: 88
   },
   { 
     id: '3', 
     slug: 'kulfi-blast-peanut-butter', 
     name: 'Kulfi Blast Peanut Butter', 
+    category: 'Protein Spreads',
     price: 12.99,
-    description: 'A unique fusion of traditional Kulfi flavor and creamy peanut butter.',
-    keyBenefits: ['Unique flavor', 'High protein', 'No palm oil'],
-    nutritionalInfo: 'Per 32g: 190 kcal, 8g Protein',
-    ingredients: 'Roasted Peanuts, Kulfi Flavor, Sugar, Salt',
-    usage: 'Spread on toast, add to smoothies, or eat directly.',
+    originalPrice: 15.99,
+    description: 'An artisanal fusion of slow-roasted Himalayan peanuts blended with aromatic royal cardamom, saffron whispers, and caramelized kulfi essence.',
+    keyBenefits: ['8g Whey-infused protein per serving', 'Zero palm oil, zero trans fats', 'Loaded with heart-healthy monounsaturated fats', 'Exotic royal kulfi flavor profile'],
+    nutritionalInfo: 'Per 32g: 190 kcal | 8g Protein | 6g Carbohydrates | 15g Unsaturated Fats',
+    ingredients: 'Slow-Roasted Grade A Peanuts, Whey Protein Concentrate, Elaichi (Green Cardamom), Saffron Extract, Pure Stevia, Himalayan Pink Salt',
+    usage: 'Spread generously on warm artisanal toast, blend into breakfast power bowls, or enjoy straight with a dessert spoon.',
     stockStatus: 'In Stock',
-    images: ['/public/assets/aistudio/61Z6RwyreWL_1a612f23.jpg']
+    stockQuantity: 32,
+    image: '/public/assets/aistudio/61Z6RwyreWL_1a612f23.jpg',
+    images: [
+      '/public/assets/aistudio/61Z6RwyreWL_1a612f23.jpg',
+      '/public/assets/aistudio/61Z6RwyreWL_1a612f23.jpg'
+    ],
+    rating: 4.7,
+    reviewsCount: 35
   },
   { 
     id: '4', 
     slug: 'cookie-blast-peanut-butter', 
     name: 'Cookie Blast Peanut Butter', 
+    category: 'Protein Spreads',
     price: 12.99,
-    description: 'Creamy peanut butter with crunchy cookie bits for a delightful treat.',
-    keyBenefits: ['Satisfying crunch', 'Great for snacking', 'No palm oil'],
-    nutritionalInfo: 'Per 32g: 200 kcal, 7g Protein',
-    ingredients: 'Roasted Peanuts, Cookie Pieces, Sugar, Salt',
-    usage: 'Spread on toast, use in baking, or eat directly.',
+    originalPrice: 16.00,
+    description: 'Velvety smooth roasted peanut cream generously folded with crunchy dark cacao cookie crisps for an irresistible gourmet textural contrast.',
+    keyBenefits: ['Satisfying crunchy cookie crumb texture', '7g high biological value protein per serving', 'Zero hydrogenated vegetable oils', 'Non-GMO ingredients'],
+    nutritionalInfo: 'Per 32g: 200 kcal | 7g Protein | 8g Carbohydrates | 15g Lipids',
+    ingredients: 'Roasted Peanuts, Dark Cocoa Biscuit Clusters, Organic Cane Sugar, Cocoa Butter, Sea Salt',
+    usage: 'Perfect on sourdough bagels, sliced green apples, blended shakes, or high-protein waffle toppings.',
     stockStatus: 'In Stock',
-    images: ['/public/assets/aistudio/images__3__689e8f19.jpeg']
+    stockQuantity: 28,
+    image: '/public/assets/aistudio/images__3__689e8f19.jpeg',
+    images: [
+      '/public/assets/aistudio/images__3__689e8f19.jpeg',
+      '/public/assets/aistudio/images__3__689e8f19.jpeg'
+    ],
+    rating: 4.6,
+    reviewsCount: 29
   },
   { 
     id: '5', 
     slug: 'mango-chia-peanut-butter', 
     name: 'Mango Chia Peanut Butter', 
+    category: 'Superfoods',
     price: 14.99,
-    description: 'An exotic blend of mango, chia seeds, and smooth peanut butter.',
-    keyBenefits: ['Rich in Omega-3', 'Exotic flavor', 'No palm oil'],
-    nutritionalInfo: 'Per 32g: 180 kcal, 7g Protein',
-    ingredients: 'Roasted Peanuts, Mango Pulp, Chia Seeds, Salt',
-    usage: 'Spread on toast, add to yogurt, or eat directly.',
+    originalPrice: 18.00,
+    description: 'A vibrant tropical symphony featuring naturally sweet Alphonso mango reduction paired with raw organic black chia seeds and golden roasted peanuts.',
+    keyBenefits: ['Enriched with plant-based Omega-3 ALA fatty acids', 'Hydrating chia fiber for prolonged satiety', 'Tropical natural sun-ripened mango taste', 'Zero palm oil or synthetic flavoring'],
+    nutritionalInfo: 'Per 32g: 180 kcal | 7g Protein | 7g Complex Carbohydrates | 14g Beneficial Fats',
+    ingredients: 'Slow Roasted Peanuts, Sun-Ripened Alphonso Mango Pulp, Raw Black Chia Seeds, Cold-Pressed Coconut Nectar, Himalayan Pink Salt',
+    usage: 'Swirl into Greek yogurt cups, drizzle across warm oatmeal, or spread onto crisp multi-grain crackers.',
     stockStatus: 'In Stock',
-    images: ['/public/assets/aistudio/images__4__877d71a7.jpeg']
+    stockQuantity: 19,
+    image: '/public/assets/aistudio/images__4__877d71a7.jpeg',
+    images: [
+      '/public/assets/aistudio/images__4__877d71a7.jpeg',
+      '/public/assets/aistudio/images__4__877d71a7.jpeg'
+    ],
+    rating: 4.9,
+    reviewsCount: 51
   },
 ];
+
+// Backwards compatibility export
+export const products = initialProducts;

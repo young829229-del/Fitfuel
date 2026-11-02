@@ -1,245 +1,226 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { collection, onSnapshot, doc, setDoc, deleteDoc, updateDoc, getDocs } from 'firebase/firestore';
-import { db } from '../lib/firebase';
-import { Product, Banner, HomepageSettings } from '../types/store';
-import { products as fallbackInitialProducts } from '../data/products';
-import { handleFirestoreError, OperationType } from '../lib/firestoreError';
+import { Product } from '../types/product';
+import { initialProducts } from '../data/products';
+import { db, auth } from '../lib/firebase';
+import { 
+  collection, 
+  onSnapshot, 
+  doc, 
+  setDoc, 
+  deleteDoc, 
+  updateDoc 
+} from 'firebase/firestore';
+import { handleFirestoreError, OperationType } from '../lib/firestoreErrors';
 
 interface ProductContextType {
   products: Product[];
-  banners: Banner[];
-  homepageSettings: HomepageSettings | null;
   loading: boolean;
-  saveProduct: (productData: Partial<Product>, id?: string) => Promise<string>;
-  removeProduct: (id: string) => Promise<void>;
-  saveBanner: (bannerData: Partial<Banner>, id?: string) => Promise<string>;
-  removeBanner: (id: string) => Promise<void>;
-  saveHomepageSettings: (settings: HomepageSettings) => Promise<void>;
+  error: string | null;
+  getProductBySlug: (slug: string) => Product | undefined;
+  getProductById: (id: string) => Product | undefined;
+  addProduct: (product: Omit<Product, 'id'>) => Promise<string>;
+  updateProduct: (id: string, updates: Partial<Product>) => Promise<void>;
+  deleteProduct: (id: string) => Promise<void>;
+  resetToDefaults: () => Promise<void>;
+  isSynced: boolean;
 }
+
+const STORAGE_KEY = 'fitful_nepal_products_cache';
 
 const ProductContext = createContext<ProductContextType | undefined>(undefined);
 
 export const ProductProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [products, setProducts] = useState<Product[]>([]);
-  const [banners, setBanners] = useState<Banner[]>([]);
-  const [homepageSettings, setHomepageSettings] = useState<HomepageSettings | null>(null);
+  const [products, setProducts] = useState<Product[]>(() => {
+    try {
+      const cached = localStorage.getItem(STORAGE_KEY);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return initialProducts;
+  });
+
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [isSynced, setIsSynced] = useState(false);
 
-  // Initialize and listen to products
+  // Sync with Firestore
   useEffect(() => {
-    const productsRef = collection(db, 'products');
+    let unsubscribe: (() => void) | undefined;
 
-    const unsubscribe = onSnapshot(
-      productsRef,
-      async (snapshot) => {
-        if (snapshot.empty) {
-          // Auto-seed initial 5 products into Firestore if database is empty
-          try {
-            for (const item of fallbackInitialProducts) {
-              const defaultImages = item.images && item.images.length > 0 
-                ? item.images 
-                : [(item as any).image || '/public/assets/aistudio/IMG_e9755086-1600-4fc3-b90a-e97667f39591_5ab03a1e.jpg'];
+    try {
+      const productsCol = collection(db, 'products');
 
-              const seedData: Product = {
-                id: item.id,
-                slug: item.slug,
-                name: item.name,
-                price: item.price,
-                description: item.description,
-                images: defaultImages,
-                image: defaultImages[0],
-                stock: 25,
-                category: 'Supplements',
-                keyBenefits: item.keyBenefits || ['High Quality', 'Tested & Verified'],
-                ingredients: item.ingredients || '',
-                nutritionalInfo: item.nutritionalInfo || '',
-                usage: item.usage || '',
-                weightSize: 'Standard Pack',
-                isFeatured: true,
-                isUnavailable: false,
-                createdAt: new Date().toISOString()
+      unsubscribe = onSnapshot(
+        productsCol,
+        (snapshot) => {
+          if (!snapshot.empty) {
+            const remoteProducts: Product[] = snapshot.docs.map((d) => {
+              const data = d.data() as any;
+              return {
+                id: d.id,
+                slug: data.slug || d.id,
+                name: data.name || 'Unnamed Product',
+                category: data.category || 'Supplements',
+                price: typeof data.price === 'number' ? data.price : parseFloat(data.price) || 0,
+                originalPrice: data.originalPrice,
+                description: data.description || '',
+                keyBenefits: Array.isArray(data.keyBenefits) ? data.keyBenefits : [],
+                nutritionalInfo: data.nutritionalInfo || '',
+                ingredients: data.ingredients || '',
+                usage: data.usage || '',
+                stockStatus: data.stockStatus || 'In Stock',
+                stockQuantity: typeof data.stockQuantity === 'number' ? data.stockQuantity : 10,
+                image: data.image || data.images?.[0] || '/public/assets/aistudio/IMG_e9755086-1600-4fc3-b90a-e97667f39591_5ab03a1e.jpg',
+                images: Array.isArray(data.images) && data.images.length > 0 
+                  ? data.images 
+                  : [data.image || '/public/assets/aistudio/IMG_e9755086-1600-4fc3-b90a-e97667f39591_5ab03a1e.jpg'],
+                rating: data.rating || 4.8,
+                reviewsCount: data.reviewsCount || 25,
+                updatedAt: data.updatedAt || new Date().toISOString()
               };
-              await setDoc(doc(db, 'products', item.id), seedData);
-            }
-          } catch (seedErr) {
-            console.warn("Could not seed initial products into Firestore:", seedErr);
-            // Fallback to local memory products if seeding fails
-            setProducts(fallbackInitialProducts.map(p => ({
-              ...p,
-              stock: 20,
-              images: p.images || [(p as any).image],
-              image: (p.images && p.images[0]) || (p as any).image
-            })));
-            setLoading(false);
-            return;
+            });
+
+            // Sort products consistently
+            remoteProducts.sort((a, b) => a.name.localeCompare(b.name));
+            setProducts(remoteProducts);
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(remoteProducts));
+            setIsSynced(true);
+          } else {
+            // Firestore is empty; attempt to seed initial products so admin and users have live data
+            seedInitialProducts();
           }
-        } else {
-          const loadedProducts = snapshot.docs.map((docSnap) => {
-            const data = docSnap.data() as Product;
-            const primaryImg = (data.images && data.images[0]) || data.image || '/public/assets/aistudio/IMG_e9755086-1600-4fc3-b90a-e97667f39591_5ab03a1e.jpg';
-            return {
-              ...data,
-              id: docSnap.id,
-              images: data.images && data.images.length > 0 ? data.images : [primaryImg],
-              image: primaryImg
-            };
-          });
-          setProducts(loadedProducts);
           setLoading(false);
+        },
+        (err) => {
+          handleFirestoreError(err, OperationType.LIST, 'products', auth.currentUser);
+          console.warn('Firestore sync failed or offline; using local product store:', err.message);
+          setError(err.message);
+          setLoading(false);
+          setIsSynced(false);
         }
-      },
-      (error) => {
-        console.error("Firestore onSnapshot error on products:", error);
-        // Fallback to static data on error to never break the store
-        setProducts(fallbackInitialProducts.map(p => ({
-          ...p,
-          stock: 20,
-          images: p.images || [(p as any).image],
-          image: (p.images && p.images[0]) || (p as any).image
-        })));
-        setLoading(false);
-      }
-    );
+      );
+    } catch (err) {
+      console.warn('Could not initialize Firestore listener:', err);
+      setLoading(false);
+    }
 
-    return () => unsubscribe();
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
   }, []);
 
-  // Initialize and listen to banners
-  useEffect(() => {
-    const bannersRef = collection(db, 'banners');
-    const unsub = onSnapshot(
-      bannersRef,
-      (snapshot) => {
-        if (!snapshot.empty) {
-          const list = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Banner));
-          setBanners(list);
-        } else {
-          // Default promo banner
-          setBanners([
-            {
-              id: 'default-banner',
-              title: '🔥 FUEL YOUR POTENTIAL • PREMIUM NUTRITION ACROSS NEPAL',
-              subtitle: 'Free Shipping on orders above Rs. 2,000',
-              isActive: true,
-              order: 1,
-              buttonText: 'Shop Now',
-              buttonLink: '/'
-            }
-          ]);
-        }
-      },
-      (err) => {
-        console.warn("Banners onSnapshot error:", err);
+  const seedInitialProducts = async () => {
+    try {
+      for (const prod of initialProducts) {
+        const docRef = doc(db, 'products', prod.id);
+        await setDoc(docRef, {
+          ...prod,
+          updatedAt: new Date().toISOString()
+        }, { merge: true });
       }
-    );
-    return () => unsub();
-  }, []);
+      setIsSynced(true);
+    } catch (err) {
+      console.warn('Auto-seed to Firestore skipped (waiting for write permissions or offline):', err);
+    }
+  };
 
-  // Listen to homepage settings
-  useEffect(() => {
-    const settingsDoc = doc(db, 'settings', 'homepage');
-    const unsub = onSnapshot(
-      settingsDoc,
-      (docSnap) => {
-        if (docSnap.exists()) {
-          setHomepageSettings(docSnap.data() as HomepageSettings);
-        } else {
-          setHomepageSettings({
-            featuredProductIds: ['1', '2', '3'],
-            bestSellerIds: ['2', '4'],
-            newArrivalIds: ['1', '5'],
-            recommendedIds: ['3', '4', '5']
-          });
-        }
-      },
-      (err) => {
-        console.warn("Homepage settings error:", err);
-      }
-    );
-    return () => unsub();
-  }, []);
+  const getProductBySlug = (slug: string) => {
+    return products.find((p) => p.slug === slug);
+  };
 
-  const saveProduct = async (productData: Partial<Product>, id?: string): Promise<string> => {
-    const productId = id || productData.slug || `prod-${Date.now()}`;
-    const primaryImg = (productData.images && productData.images[0]) || productData.image || '/public/assets/aistudio/IMG_e9755086-1600-4fc3-b90a-e97667f39591_5ab03a1e.jpg';
-    
-    const finalProduct: Product = {
-      id: productId,
-      name: productData.name || 'Unnamed Product',
-      slug: productData.slug || productData.name?.toLowerCase().replace(/[^a-z0-9]+/g, '-') || productId,
-      price: Number(productData.price) || 0,
-      discountPrice: productData.discountPrice ? Number(productData.discountPrice) : undefined,
-      description: productData.description || '',
-      images: productData.images && productData.images.length > 0 ? productData.images : [primaryImg],
-      image: primaryImg,
-      stock: Number(productData.stock) >= 0 ? Number(productData.stock) : 10,
-      category: productData.category || 'Supplements',
-      keyBenefits: productData.keyBenefits || [],
-      ingredients: productData.ingredients || '',
-      nutritionalInfo: productData.nutritionalInfo || '',
-      usage: productData.usage || '',
-      weightSize: productData.weightSize || '',
-      isFeatured: !!productData.isFeatured,
-      isUnavailable: !!productData.isUnavailable,
-      updatedAt: new Date().toISOString(),
-      createdAt: productData.createdAt || new Date().toISOString()
+  const getProductById = (id: string) => {
+    return products.find((p) => p.id === id);
+  };
+
+  const addProduct = async (productData: Omit<Product, 'id'>): Promise<string> => {
+    const newId = 'prod_' + Date.now();
+    const newProduct: Product = {
+      ...productData,
+      id: newId,
+      image: productData.image || productData.images?.[0] || '/public/assets/aistudio/IMG_e9755086-1600-4fc3-b90a-e97667f39591_5ab03a1e.jpg',
+      images: productData.images?.length ? productData.images : [productData.image],
+      updatedAt: new Date().toISOString()
     };
 
+    // Optimistic local update
+    setProducts((prev) => {
+      const next = [newProduct, ...prev];
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      return next;
+    });
+
+    // Write to Firestore if connected
     try {
-      await setDoc(doc(db, 'products', productId), finalProduct);
-      return productId;
+      const docRef = doc(db, 'products', newId);
+      await setDoc(docRef, newProduct);
+      setIsSynced(true);
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, `products/${productId}`);
+      handleFirestoreError(err, OperationType.CREATE, `products/${newId}`, auth.currentUser);
+      console.warn('Saved locally; Firestore write threw an error:', err);
+    }
+
+    return newId;
+  };
+
+  const updateProduct = async (id: string, updates: Partial<Product>): Promise<void> => {
+    const now = new Date().toISOString();
+    const updatedPayload = { ...updates, updatedAt: now };
+
+    // Optimistic update
+    setProducts((prev) => {
+      const next = prev.map((p) => (p.id === id ? { ...p, ...updatedPayload } : p));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      return next;
+    });
+
+    try {
+      const docRef = doc(db, 'products', id);
+      await updateDoc(docRef, updatedPayload);
+      setIsSynced(true);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `products/${id}`, auth.currentUser);
+      console.warn('Updated locally; Firestore update threw an error:', err);
     }
   };
 
-  const removeProduct = async (id: string): Promise<void> => {
+  const deleteProduct = async (id: string): Promise<void> => {
+    setProducts((prev) => {
+      const next = prev.filter((p) => p.id !== id);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      return next;
+    });
+
     try {
-      await deleteDoc(doc(db, 'products', id));
+      const docRef = doc(db, 'products', id);
+      await deleteDoc(docRef);
+      setIsSynced(true);
     } catch (err) {
-      handleFirestoreError(err, OperationType.DELETE, `products/${id}`);
+      handleFirestoreError(err, OperationType.DELETE, `products/${id}`, auth.currentUser);
+      console.warn('Deleted locally; Firestore delete threw an error:', err);
     }
   };
 
-  const saveBanner = async (bannerData: Partial<Banner>, id?: string): Promise<string> => {
-    const bannerId = id || `banner-${Date.now()}`;
-    const finalBanner: Banner = {
-      id: bannerId,
-      title: bannerData.title || 'Special Promotion',
-      subtitle: bannerData.subtitle || '',
-      description: bannerData.description || '',
-      image: bannerData.image || '',
-      buttonText: bannerData.buttonText || '',
-      buttonLink: bannerData.buttonLink || '/',
-      isActive: bannerData.isActive !== undefined ? bannerData.isActive : true,
-      order: bannerData.order || 1,
-      createdAt: bannerData.createdAt || new Date().toISOString()
-    };
+  const resetToDefaults = async (): Promise<void> => {
+    setProducts(initialProducts);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(initialProducts));
 
     try {
-      await setDoc(doc(db, 'banners', bannerId), finalBanner);
-      return bannerId;
+      for (const prod of initialProducts) {
+        const docRef = doc(db, 'products', prod.id);
+        await setDoc(docRef, {
+          ...prod,
+          updatedAt: new Date().toISOString()
+        });
+      }
+      setIsSynced(true);
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, `banners/${bannerId}`);
-    }
-  };
-
-  const removeBanner = async (id: string): Promise<void> => {
-    try {
-      await deleteDoc(doc(db, 'banners', id));
-    } catch (err) {
-      handleFirestoreError(err, OperationType.DELETE, `banners/${id}`);
-    }
-  };
-
-  const saveHomepageSettings = async (settings: HomepageSettings): Promise<void> => {
-    try {
-      await setDoc(doc(db, 'settings', 'homepage'), {
-        ...settings,
-        updatedAt: new Date().toISOString()
-      });
-    } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, 'settings/homepage');
+      console.warn('Reset local cache; Firestore write error:', err);
     }
   };
 
@@ -247,14 +228,15 @@ export const ProductProvider: React.FC<{ children: React.ReactNode }> = ({ child
     <ProductContext.Provider
       value={{
         products,
-        banners,
-        homepageSettings,
         loading,
-        saveProduct,
-        removeProduct,
-        saveBanner,
-        removeBanner,
-        saveHomepageSettings
+        error,
+        getProductBySlug,
+        getProductById,
+        addProduct,
+        updateProduct,
+        deleteProduct,
+        resetToDefaults,
+        isSynced,
       }}
     >
       {children}
@@ -264,6 +246,8 @@ export const ProductProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
 export const useProducts = () => {
   const context = useContext(ProductContext);
-  if (!context) throw new Error('useProducts must be used within a ProductProvider');
+  if (!context) {
+    throw new Error('useProducts must be used within a ProductProvider');
+  }
   return context;
 };

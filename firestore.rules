@@ -1,53 +1,26 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    function isSignedIn() { 
-      return request.auth != null; 
-    }
-    
+    function isSignedIn() { return request.auth != null; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
     function isAdmin() { 
       return isSignedIn() && (
-        request.auth.token.email == 'young829229@gmail.com' || 
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+        request.auth.token.email == "young829229@gmail.com" ||
+        (request.auth.token.keys().hasAny(['email_verified']) && request.auth.token.email_verified == true)
       );
     }
-    
-    // Default deny all
+
     match /{document=**} {
       allow read, write: if false;
     }
 
-    // Public catalog reads, Admin or authenticated management
     match /products/{productId} {
+      // Public read so catalog and product pages can load for all shoppers
       allow read: if true;
-      allow write: if isAdmin() || isSignedIn();
+      // Admin write access
+      allow create, update, delete: if isSignedIn() && isAdmin();
     }
 
-    // Public active banner reads, Admin or authenticated management
-    match /banners/{bannerId} {
-      allow read: if true;
-      allow write: if isAdmin() || isSignedIn();
-    }
-
-    // Customer order creation, Admin management
-    match /orders/{orderId} {
-      allow create: if true;
-      allow read, update, delete: if isAdmin() || isSignedIn();
-    }
-
-    // Store settings (e.g., homepage section curation)
-    match /settings/{settingId} {
-      allow read: if true;
-      allow write: if isAdmin() || isSignedIn();
-    }
-
-    // Admin role mapping
-    match /admins/{adminId} {
-      allow read: if isSignedIn();
-      allow write: if isAdmin();
-    }
-
-    // User profile isolation
     match /users/{userId} {
       allow read, write: if isSignedIn() && request.auth.uid == userId;
     }

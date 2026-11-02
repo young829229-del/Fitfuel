@@ -1,7 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { db } from '../lib/firebase';
 import { collection, addDoc, doc, setDoc } from 'firebase/firestore';
-import { OrderItem } from '../types/store';
 
 export interface CartProductItem {
   id: string;

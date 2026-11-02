@@ -1,5 +1,3 @@
-import { auth } from './firebase';
-
 export enum OperationType {
   CREATE = 'create',
   UPDATE = 'update',
@@ -26,23 +24,23 @@ export interface FirestoreErrorInfo {
   };
 }
 
-export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null): never {
+export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null, authUser?: any): FirestoreErrorInfo {
   const errInfo: FirestoreErrorInfo = {
     error: error instanceof Error ? error.message : String(error),
     authInfo: {
-      userId: auth.currentUser?.uid,
-      email: auth.currentUser?.email,
-      emailVerified: auth.currentUser?.emailVerified,
-      isAnonymous: auth.currentUser?.isAnonymous,
-      tenantId: auth.currentUser?.tenantId,
-      providerInfo: auth.currentUser?.providerData?.map(provider => ({
-        providerId: provider.providerId,
-        email: provider.email,
+      userId: authUser?.uid || null,
+      email: authUser?.email || null,
+      emailVerified: authUser?.emailVerified || null,
+      isAnonymous: authUser?.isAnonymous || null,
+      tenantId: authUser?.tenantId || null,
+      providerInfo: authUser?.providerData?.map((p: any) => ({
+        providerId: p.providerId,
+        email: p.email,
       })) || []
     },
     operationType,
     path
   };
   console.error('Firestore Error: ', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
+  return errInfo;
 }

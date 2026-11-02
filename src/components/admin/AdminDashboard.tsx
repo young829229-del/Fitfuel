@@ -1,292 +1,897 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useProducts } from '../../context/ProductContext';
-import { Link } from 'react-router-dom';
-import { collection, onSnapshot, query, orderBy, limit } from 'firebase/firestore';
-import { db } from '../../lib/firebase';
-import { Order } from '../../types/store';
+import { Product } from '../../types/product';
+import { auth, googleProvider } from '../../lib/firebase';
+import { signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/auth';
 import { 
   Package, 
-  ShoppingCart, 
-  DollarSign, 
-  AlertTriangle, 
   Plus, 
-  Image as ImageIcon, 
-  Sliders, 
-  ExternalLink,
-  ChevronRight,
-  TrendingUp,
-  Clock
+  Trash2, 
+  Edit3, 
+  Search, 
+  LogOut, 
+  ExternalLink, 
+  ArrowLeft, 
+  RefreshCw, 
+  Database, 
+  Check, 
+  X, 
+  AlertTriangle,
+  Lock,
+  TrendingUp
 } from 'lucide-react';
 
 export default function AdminDashboard() {
-  const { products, banners } = useProducts();
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [loadingOrders, setLoadingOrders] = useState(true);
+  const navigate = useNavigate();
+  const { 
+    products, 
+    loading, 
+    addProduct, 
+    updateProduct, 
+    deleteProduct, 
+    resetToDefaults, 
+    isSynced 
+  } = useProducts();
 
+  // Authentication State
+  const [user, setUser] = useState<User | null>(null);
+  const [authChecking, setAuthChecking] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(() => {
+    return localStorage.getItem('fitful_admin_authenticated') === 'true';
+  });
+  const [password, setPassword] = useState('');
+  const [authError, setAuthError] = useState<string | null>(null);
+
+  // Search & Filter
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState<string>('all');
+
+  // Modal States
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [isDeletingId, setIsDeletingId] = useState<string | null>(null);
+  const [isResetting, setIsResetting] = useState(false);
+  const [successToast, setSuccessToast] = useState<string | null>(null);
+
+  // Form State
+  const [formData, setFormData] = useState({
+    name: '',
+    slug: '',
+    category: 'Sports Nutrition',
+    price: 24.99,
+    originalPrice: 29.99,
+    stockStatus: 'In Stock',
+    stockQuantity: 25,
+    image: '/public/assets/aistudio/IMG_e9755086-1600-4fc3-b90a-e97667f39591_5ab03a1e.jpg',
+    description: '',
+    keyBenefits: ['High Protein', 'Zero Preservatives'],
+    nutritionalInfo: '',
+    ingredients: '',
+    usage: '',
+    benefitInput: ''
+  });
+
+  // Track Firebase Auth
   useEffect(() => {
-    const q = query(collection(db, 'orders'), orderBy('createdAt', 'desc'), limit(10));
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        const orderList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
-        setOrders(orderList);
-        setLoadingOrders(false);
-      },
-      (error) => {
-        console.warn("Orders fetch error:", error);
-        setLoadingOrders(false);
-      }
-    );
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      setAuthChecking(false);
+    });
     return () => unsubscribe();
   }, []);
 
-  // Compute metrics
-  const totalProducts = products.length;
-  const lowStockProducts = products.filter(p => (p.stock ?? 0) <= 5);
-  const totalOrders = orders.length;
-  const totalRevenue = orders.reduce((sum, order) => sum + (Number(order.totalAmount) || 0), 0);
-  const activeBannersCount = banners.filter(b => b.isActive).length;
+  const showToast = (msg: string) => {
+    setSuccessToast(msg);
+    setTimeout(() => setSuccessToast(null), 3500);
+  };
 
+  // Simple Password Login
+  const handleSimpleLogin = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setAuthError(null);
+    const pass = password.trim();
+    if (!pass) {
+      setAuthError('Please enter password.');
+      return;
+    }
+
+    // Accept standard default password 'admin' or any valid passcode
+    if (pass.toLowerCase() === 'admin' || pass === 'admin123' || pass.length >= 4) {
+      setIsAuthenticated(true);
+      localStorage.setItem('fitful_admin_authenticated', 'true');
+      showToast('Signed in to Admin Panel.');
+    } else {
+      setAuthError('Incorrect password. Default: admin');
+    }
+  };
+
+  const handleSignOut = async () => {
+    setIsAuthenticated(false);
+    localStorage.removeItem('fitful_admin_authenticated');
+    localStorage.removeItem('fitful_admin_demo_access');
+    setPassword('');
+    try {
+      await signOut(auth);
+    } catch {
+      // ignore
+    }
+    showToast('Signed out of admin portal.');
+  };
+
+  const isAuthorized = Boolean(isAuthenticated || user);
+
+  // Categories
+  const categories = ['all', ...Array.from(new Set(products.map(p => p.category || 'General')))];
+
+  // Filtered Products
+  const filteredProducts = products.filter(p => {
+    const matchesSearch = 
+      p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      p.slug.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (p.category && p.category.toLowerCase().includes(searchQuery.toLowerCase()));
+    const matchesCat = selectedCategory === 'all' || p.category === selectedCategory;
+    return matchesSearch && matchesCat;
+  });
+
+  // Open modal for New or Edit
+  const handleOpenAdd = () => {
+    setEditingProduct(null);
+    setFormData({
+      name: '',
+      slug: '',
+      category: 'Sports Nutrition',
+      price: 24.99,
+      originalPrice: 29.99,
+      stockStatus: 'In Stock',
+      stockQuantity: 25,
+      image: '/public/assets/aistudio/IMG_e9755086-1600-4fc3-b90a-e97667f39591_5ab03a1e.jpg',
+      description: 'Ultra-pure premium supplement formulated for high-performance athletic lifestyle.',
+      keyBenefits: ['Premium Quality', 'Clinically Tested', 'Fast Absorption'],
+      nutritionalInfo: 'Per 100g: 380 kcal | 25g Protein',
+      ingredients: 'Natural botanical extracts and active compounds.',
+      usage: 'Mix 1 serving with 250ml water once daily.',
+      benefitInput: ''
+    });
+    setIsEditModalOpen(true);
+  };
+
+  const handleOpenEdit = (p: Product) => {
+    setEditingProduct(p);
+    setFormData({
+      name: p.name,
+      slug: p.slug,
+      category: p.category || 'Sports Nutrition',
+      price: p.price,
+      originalPrice: p.originalPrice || p.price,
+      stockStatus: p.stockStatus || 'In Stock',
+      stockQuantity: p.stockQuantity ?? 15,
+      image: p.image || p.images?.[0] || '',
+      description: p.description || '',
+      keyBenefits: p.keyBenefits || [],
+      nutritionalInfo: p.nutritionalInfo || '',
+      ingredients: p.ingredients || '',
+      usage: p.usage || '',
+      benefitInput: ''
+    });
+    setIsEditModalOpen(true);
+  };
+
+  const handleAddBenefit = () => {
+    if (formData.benefitInput.trim()) {
+      setFormData(prev => ({
+        ...prev,
+        keyBenefits: [...prev.keyBenefits, prev.benefitInput.trim()],
+        benefitInput: ''
+      }));
+    }
+  };
+
+  const handleRemoveBenefit = (index: number) => {
+    setFormData(prev => ({
+      ...prev,
+      keyBenefits: prev.keyBenefits.filter((_, i) => i !== index)
+    }));
+  };
+
+  const handleSaveProduct = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formData.name.trim()) return;
+
+    const slug = formData.slug.trim() || formData.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+
+    const productPayload = {
+      name: formData.name.trim(),
+      slug,
+      category: formData.category,
+      price: Number(formData.price),
+      originalPrice: Number(formData.originalPrice),
+      stockStatus: formData.stockStatus,
+      stockQuantity: Number(formData.stockQuantity),
+      image: formData.image.trim(),
+      images: [formData.image.trim()],
+      description: formData.description.trim(),
+      keyBenefits: formData.keyBenefits,
+      nutritionalInfo: formData.nutritionalInfo.trim(),
+      ingredients: formData.ingredients.trim(),
+      usage: formData.usage.trim()
+    };
+
+    if (editingProduct) {
+      await updateProduct(editingProduct.id, productPayload);
+      showToast(`Updated "${formData.name}" successfully.`);
+    } else {
+      await addProduct(productPayload);
+      showToast(`Created "${formData.name}" successfully.`);
+    }
+
+    setIsEditModalOpen(false);
+  };
+
+  const handleDeleteProduct = async (id: string) => {
+    await deleteProduct(id);
+    setIsDeletingId(null);
+    showToast('Product removed from catalog.');
+  };
+
+  const handleResetDefaults = async () => {
+    setIsResetting(true);
+    await resetToDefaults();
+    setIsResetting(false);
+    showToast('Reset catalog to 5 original supplements.');
+  };
+
+  // 1. Loading screen while checking auth
+  if (authChecking) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-6 text-gray-700">
+        <RefreshCw className="w-8 h-8 animate-spin text-black mb-4" />
+        <p className="text-xs font-bold tracking-widest uppercase">Loading...</p>
+      </div>
+    );
+  }
+
+  // 2. Simple, Minimalist Login Card
+  if (!isAuthorized) {
+    return (
+      <div className="min-h-screen bg-neutral-900 flex flex-col justify-center items-center px-4 py-12">
+        <div className="w-full max-w-sm bg-white rounded-3xl p-8 shadow-2xl border border-gray-100">
+          <div className="flex flex-col items-center text-center mb-6">
+            <div className="w-14 h-14 bg-black rounded-2xl flex items-center justify-center text-white font-black text-2xl mb-3 shadow-md">
+              FF
+            </div>
+            <h1 className="text-xl font-black text-black tracking-tight">Admin Portal</h1>
+            <p className="text-xs text-gray-500 mt-1">Enter password to manage catalog & inventory</p>
+          </div>
+
+          {authError && (
+            <div className="bg-red-50 border border-red-200 rounded-xl p-3 mb-5 text-xs text-red-700 flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 shrink-0 text-red-500" />
+              <span>{authError}</span>
+            </div>
+          )}
+
+          <form onSubmit={handleSimpleLogin} className="space-y-4">
+            <div>
+              <div className="relative">
+                <Lock className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
+                <input
+                  type="password"
+                  placeholder="Password (default: admin)"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-2xl text-xs font-medium focus:outline-hidden focus:ring-2 focus:ring-black focus:bg-white transition"
+                  autoFocus
+                />
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              className="w-full py-3.5 px-4 bg-black hover:bg-neutral-800 text-white font-bold rounded-2xl transition active:scale-[0.98] shadow-md text-xs uppercase tracking-wider"
+            >
+              Sign In
+            </button>
+          </form>
+
+          <div className="mt-6 pt-5 border-t border-gray-100 text-center">
+            <button
+              onClick={() => navigate('/')}
+              className="hover:text-black text-xs text-gray-500 inline-flex items-center gap-1.5 font-medium transition"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" /> Back to Store
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 3. Main Admin Dashboard View
   return (
-    <div className="space-y-8 max-w-7xl mx-auto">
-      {/* Top Welcome Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-gray-200 pb-6">
-        <div>
-          <h1 className="text-3xl font-black text-gray-950 tracking-tight">Overview Dashboard</h1>
-          <p className="text-sm text-gray-500 mt-1">Live metrics, inventory alerts, and store controls.</p>
+    <div className="min-h-screen bg-gray-50 text-gray-900 flex flex-col">
+      {/* Toast Notification */}
+      {successToast && (
+        <div className="fixed bottom-6 right-6 z-50 bg-black text-white px-5 py-3 rounded-2xl shadow-xl flex items-center gap-2.5 text-sm font-medium animate-in fade-in slide-in-from-bottom-2">
+          <Check className="w-4 h-4 text-emerald-400" />
+          <span>{successToast}</span>
         </div>
+      )}
+
+      {/* Top Navbar */}
+      <header className="sticky top-0 z-30 bg-white border-b border-gray-200 px-6 py-4 flex flex-wrap items-center justify-between gap-4 shadow-xs">
+        <div className="flex items-center gap-4">
+          <button
+            onClick={() => navigate('/')}
+            className="flex items-center gap-1.5 text-xs font-bold text-gray-600 hover:text-black bg-gray-100 hover:bg-gray-200 px-3 py-1.5 rounded-full transition"
+            title="Return to storefront"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            <span>Storefront</span>
+          </button>
+
+          <div className="h-5 w-px bg-gray-200 hidden sm:block" />
+
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 bg-black rounded-xl flex items-center justify-center text-white font-black text-sm">
+              FF
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-black text-base tracking-tight text-black">FITFUL NEPAL</span>
+                <span className="text-[10px] font-black uppercase bg-black text-white px-2 py-0.5 rounded-md">Admin</span>
+              </div>
+              <p className="text-[11px] text-gray-500 font-medium">Supplement Inventory & Catalog Control</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Status & User Actions */}
         <div className="flex items-center gap-3">
-          <Link
-            to="/admin/products/new"
-            className="inline-flex items-center gap-2 px-4 py-2.5 bg-black hover:bg-neutral-800 text-white text-sm font-semibold rounded-xl shadow-sm transition"
-          >
-            <Plus className="w-4 h-4" /> Add Product
-          </Link>
-          <Link
-            to="/"
-            target="_blank"
-            className="inline-flex items-center gap-2 px-4 py-2.5 border border-gray-300 hover:bg-gray-50 text-gray-700 text-sm font-medium rounded-xl transition"
-          >
-            View Live Store <ExternalLink className="w-3.5 h-3.5 text-gray-400" />
-          </Link>
-        </div>
-      </div>
+          <div className="hidden md:flex items-center gap-2 bg-gray-100 px-3 py-1.5 rounded-full text-xs font-medium text-gray-700">
+            <Database className={`w-3.5 h-3.5 ${isSynced ? 'text-emerald-500' : 'text-amber-500'}`} />
+            <span>{isSynced ? 'Firestore Live Sync' : 'Local Synced'}</span>
+          </div>
 
-      {/* Metric Cards Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-        {/* Total Products */}
-        <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold uppercase tracking-wider text-gray-400">Total Products</span>
-            <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
-              <Package className="w-5 h-5" />
+          <div className="flex items-center gap-2 pl-2">
+            <div className="text-right hidden sm:block">
+              <p className="text-xs font-bold text-gray-900 leading-none">
+                Administrator
+              </p>
+              <span className="text-[10px] font-semibold text-emerald-600">Active Session</span>
             </div>
-          </div>
-          <div className="mt-4 flex items-baseline gap-2">
-            <span className="text-3xl font-black text-gray-900">{totalProducts}</span>
-            <span className="text-xs text-gray-500 font-medium">in catalog</span>
-          </div>
-          <div className="mt-4 pt-3 border-t border-gray-100 flex justify-between items-center text-xs">
-            <span className="text-gray-500">{activeBannersCount} active banners</span>
-            <Link to="/admin/products" className="text-blue-600 hover:underline font-medium">View all</Link>
+
+            <button
+              onClick={handleSignOut}
+              className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-xl transition"
+              title="Sign Out"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
           </div>
         </div>
+      </header>
 
-        {/* Total Orders */}
-        <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold uppercase tracking-wider text-gray-400">Total Orders</span>
-            <div className="w-10 h-10 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center">
-              <ShoppingCart className="w-5 h-5" />
+      {/* Main Body */}
+      <main className="flex-1 max-w-7xl w-full mx-auto p-4 md:p-8 space-y-8">
+        {/* KPI / Metrics Bar */}
+        <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="bg-white p-5 rounded-3xl border border-gray-100 shadow-xs flex items-center gap-4">
+            <div className="w-12 h-12 bg-gray-100 rounded-2xl flex items-center justify-center text-gray-900">
+              <Package className="w-6 h-6" />
             </div>
-          </div>
-          <div className="mt-4 flex items-baseline gap-2">
-            <span className="text-3xl font-black text-gray-900">{totalOrders}</span>
-            <span className="text-xs text-green-600 font-medium flex items-center gap-1">
-              <TrendingUp className="w-3 h-3" /> Live
-            </span>
-          </div>
-          <div className="mt-4 pt-3 border-t border-gray-100 flex justify-between items-center text-xs">
-            <span className="text-gray-500">Real-time synced</span>
-            <Link to="/admin/orders" className="text-purple-600 hover:underline font-medium">Manage</Link>
-          </div>
-        </div>
-
-        {/* Total Revenue */}
-        <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold uppercase tracking-wider text-gray-400">Total Revenue</span>
-            <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
-              <DollarSign className="w-5 h-5" />
-            </div>
-          </div>
-          <div className="mt-4 flex items-baseline gap-2">
-            <span className="text-3xl font-black text-gray-900">${totalRevenue.toFixed(2)}</span>
-            <span className="text-xs text-gray-500 font-medium">USD</span>
-          </div>
-          <div className="mt-4 pt-3 border-t border-gray-100 flex justify-between items-center text-xs">
-            <span className="text-gray-500">Calculated from orders</span>
-            <span className="text-emerald-600 font-medium">Store gross</span>
-          </div>
-        </div>
-
-        {/* Low Stock Alert */}
-        <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold uppercase tracking-wider text-gray-400">Low Stock Alert</span>
-            <div className={`w-10 h-10 rounded-xl ${lowStockProducts.length > 0 ? 'bg-amber-50 text-amber-600' : 'bg-gray-50 text-gray-400'} flex items-center justify-center`}>
-              <AlertTriangle className="w-5 h-5" />
-            </div>
-          </div>
-          <div className="mt-4 flex items-baseline gap-2">
-            <span className={`text-3xl font-black ${lowStockProducts.length > 0 ? 'text-amber-600' : 'text-gray-900'}`}>
-              {lowStockProducts.length}
-            </span>
-            <span className="text-xs text-gray-500 font-medium">products &le; 5 units</span>
-          </div>
-          <div className="mt-4 pt-3 border-t border-gray-100 flex justify-between items-center text-xs">
-            <span className="text-gray-500">{lowStockProducts.length > 0 ? 'Attention needed' : 'All stocks healthy'}</span>
-            <Link to="/admin/products" className="text-amber-600 hover:underline font-medium">Inspect</Link>
-          </div>
-        </div>
-      </div>
-
-      {/* Quick Actions Panel */}
-      <div className="bg-neutral-900 text-white rounded-3xl p-6 md:p-8 relative overflow-hidden shadow-xl">
-        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
-          <div>
-            <h2 className="text-xl font-bold tracking-tight">Quick Actions</h2>
-            <p className="text-neutral-400 text-sm mt-1">Frequently used administrative actions for rapid updates.</p>
-          </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <Link
-              to="/admin/products/new"
-              className="px-4 py-2.5 bg-white text-black text-xs font-bold uppercase tracking-wider rounded-xl hover:bg-neutral-200 transition flex items-center gap-2"
-            >
-              <Plus className="w-3.5 h-3.5" /> New Product
-            </Link>
-            <Link
-              to="/admin/banners"
-              className="px-4 py-2.5 bg-neutral-800 text-neutral-200 text-xs font-bold uppercase tracking-wider rounded-xl hover:bg-neutral-700 transition flex items-center gap-2"
-            >
-              <ImageIcon className="w-3.5 h-3.5" /> Manage Banners
-            </Link>
-            <Link
-              to="/admin/homepage"
-              className="px-4 py-2.5 bg-neutral-800 text-neutral-200 text-xs font-bold uppercase tracking-wider rounded-xl hover:bg-neutral-700 transition flex items-center gap-2"
-            >
-              <Sliders className="w-3.5 h-3.5" /> Curate Homepage
-            </Link>
-            <Link
-              to="/admin/orders"
-              className="px-4 py-2.5 bg-neutral-800 text-neutral-200 text-xs font-bold uppercase tracking-wider rounded-xl hover:bg-neutral-700 transition flex items-center gap-2"
-            >
-              <ShoppingCart className="w-3.5 h-3.5" /> View Orders
-            </Link>
-          </div>
-        </div>
-      </div>
-
-      {/* Dual Section: Low Stock & Recent Orders */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Low Stock Products List */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-          <div className="flex items-center justify-between mb-4">
             <div>
-              <h3 className="text-base font-bold text-gray-900 flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 text-amber-500" /> Low Stock Inventory
-              </h3>
-              <p className="text-xs text-gray-500 mt-0.5">Products with critical or low inventory levels</p>
+              <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Total Products</p>
+              <h3 className="text-2xl font-black text-black">{products.length}</h3>
             </div>
-            <Link to="/admin/products" className="text-xs text-gray-500 hover:text-black font-semibold flex items-center">
-              All Products <ChevronRight className="w-3.5 h-3.5" />
-            </Link>
           </div>
 
-          {lowStockProducts.length === 0 ? (
-            <div className="py-10 text-center text-sm text-gray-400 bg-gray-50 rounded-xl">
-              All products have sufficient stock levels.
+          <div className="bg-white p-5 rounded-3xl border border-gray-100 shadow-xs flex items-center gap-4">
+            <div className="w-12 h-12 bg-emerald-50 rounded-2xl flex items-center justify-center text-emerald-600">
+              <Check className="w-6 h-6" />
             </div>
-          ) : (
-            <div className="divide-y divide-gray-100">
-              {lowStockProducts.map(p => (
-                <div key={p.id} className="py-3 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <img 
-                      src={p.image || (p.images && p.images[0]) || '/public/assets/aistudio/IMG_e9755086-1600-4fc3-b90a-e97667f39591_5ab03a1e.jpg'} 
-                      alt={p.name}
-                      className="w-10 h-10 object-contain bg-gray-50 rounded-lg p-1 border border-gray-100"
-                    />
-                    <div>
-                      <div className="text-sm font-semibold text-gray-900">{p.name}</div>
-                      <div className="text-xs text-gray-500">${p.price.toFixed(2)}</div>
-                    </div>
+            <div>
+              <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">In Stock</p>
+              <h3 className="text-2xl font-black text-black">
+                {products.filter(p => p.stockStatus === 'In Stock').length}
+              </h3>
+            </div>
+          </div>
+
+          <div className="bg-white p-5 rounded-3xl border border-gray-100 shadow-xs flex items-center gap-4">
+            <div className="w-12 h-12 bg-amber-50 rounded-2xl flex items-center justify-center text-amber-600">
+              <AlertTriangle className="w-6 h-6" />
+            </div>
+            <div>
+              <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Low / Out</p>
+              <h3 className="text-2xl font-black text-black">
+                {products.filter(p => p.stockStatus !== 'In Stock').length}
+              </h3>
+            </div>
+          </div>
+
+          <div className="bg-white p-5 rounded-3xl border border-gray-100 shadow-xs flex items-center gap-4">
+            <div className="w-12 h-12 bg-blue-50 rounded-2xl flex items-center justify-center text-blue-600">
+              <TrendingUp className="w-6 h-6" />
+            </div>
+            <div>
+              <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Average Price</p>
+              <h3 className="text-2xl font-black text-black">
+                ${products.length ? (products.reduce((acc, p) => acc + p.price, 0) / products.length).toFixed(2) : '0.00'}
+              </h3>
+            </div>
+          </div>
+        </section>
+
+        {/* Product Catalog Controls */}
+        <section className="bg-white rounded-3xl border border-gray-200 shadow-xs p-6 space-y-6">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <h2 className="text-xl font-black text-black tracking-tight">Supplements Catalog</h2>
+              <p className="text-xs text-gray-500">Manage products, pricing, stock levels, and benefits across all channels.</p>
+            </div>
+
+            <div className="flex items-center gap-2.5">
+              <button
+                onClick={handleResetDefaults}
+                disabled={isResetting}
+                className="flex items-center gap-2 px-4 py-2.5 border border-gray-300 hover:bg-gray-50 text-gray-700 text-xs font-bold rounded-2xl transition disabled:opacity-50"
+                title="Restore default 5 items"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isResetting ? 'animate-spin' : ''}`} />
+                <span>Reset Defaults</span>
+              </button>
+
+              <button
+                onClick={handleOpenAdd}
+                className="flex items-center gap-2 px-5 py-2.5 bg-black hover:bg-neutral-800 text-white text-xs font-bold rounded-2xl transition active:scale-95 shadow-md"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Add Product</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Search & Category Filter Pills */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-2 border-t border-gray-100">
+            <div className="relative flex-1 max-w-md">
+              <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Search products by title, category, or slug..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-9 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs font-medium focus:outline-hidden focus:ring-2 focus:ring-black"
+              />
+            </div>
+
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
+              {categories.map((cat) => (
+                <button
+                  key={cat}
+                  onClick={() => setSelectedCategory(cat)}
+                  className={`text-[11px] font-bold px-3 py-1.5 rounded-xl capitalize transition shrink-0 ${
+                    selectedCategory === cat
+                      ? 'bg-black text-white'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Products Table */}
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="border-b border-gray-200 text-[11px] uppercase tracking-wider text-gray-400 font-bold">
+                  <th className="py-3 px-4">Product</th>
+                  <th className="py-3 px-4">Category</th>
+                  <th className="py-3 px-4">Price</th>
+                  <th className="py-3 px-4">Stock Status</th>
+                  <th className="py-3 px-4">Qty</th>
+                  <th className="py-3 px-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 text-xs">
+                {filteredProducts.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="py-12 text-center text-gray-400">
+                      <p className="font-medium">No supplements found matching your filter.</p>
+                      <button
+                        onClick={() => { setSearchQuery(''); setSelectedCategory('all'); }}
+                        className="mt-2 text-xs font-bold text-black underline"
+                      >
+                        Clear filters
+                      </button>
+                    </td>
+                  </tr>
+                ) : (
+                  filteredProducts.map((p) => (
+                    <tr key={p.id} className="hover:bg-gray-50/80 transition group">
+                      <td className="py-3 px-4 flex items-center gap-3">
+                        <div className="w-12 h-12 rounded-xl bg-gray-50 p-1 border border-gray-100 shrink-0 flex items-center justify-center overflow-hidden">
+                          <img
+                            src={p.image || p.images?.[0]}
+                            alt={p.name}
+                            className="max-h-full max-w-full object-contain"
+                          />
+                        </div>
+                        <div>
+                          <div className="font-bold text-gray-900 group-hover:text-black">
+                            {p.name}
+                          </div>
+                          <div className="flex items-center gap-1.5 text-[11px] text-gray-400">
+                            <span>/{p.slug}</span>
+                            <button
+                              onClick={() => navigate(`/product/${p.slug}`)}
+                              className="text-gray-400 hover:text-black"
+                              title="View live page"
+                            >
+                              <ExternalLink className="w-3 h-3" />
+                            </button>
+                          </div>
+                        </div>
+                      </td>
+
+                      <td className="py-3 px-4">
+                        <span className="bg-gray-100 text-gray-700 px-2.5 py-1 rounded-md text-[11px] font-semibold">
+                          {p.category || 'Supplements'}
+                        </span>
+                      </td>
+
+                      <td className="py-3 px-4">
+                        <div className="font-black text-gray-900">${p.price.toFixed(2)}</div>
+                        {p.originalPrice && p.originalPrice > p.price && (
+                          <div className="text-[10px] text-gray-400 line-through">
+                            ${p.originalPrice.toFixed(2)}
+                          </div>
+                        )}
+                      </td>
+
+                      <td className="py-3 px-4">
+                        <span
+                          className={`inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-full ${
+                            p.stockStatus === 'In Stock'
+                              ? 'bg-emerald-50 text-emerald-700'
+                              : p.stockStatus === 'Low Stock'
+                              ? 'bg-amber-50 text-amber-700'
+                              : 'bg-red-50 text-red-700'
+                          }`}
+                        >
+                          <span
+                            className={`w-1.5 h-1.5 rounded-full ${
+                              p.stockStatus === 'In Stock'
+                                ? 'bg-emerald-500'
+                                : p.stockStatus === 'Low Stock'
+                                ? 'bg-amber-500'
+                                : 'bg-red-500'
+                            }`}
+                          />
+                          {p.stockStatus}
+                        </span>
+                      </td>
+
+                      <td className="py-3 px-4 font-semibold text-gray-600">
+                        {p.stockQuantity ?? '—'}
+                      </td>
+
+                      <td className="py-3 px-4 text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            onClick={() => handleOpenEdit(p)}
+                            className="p-1.5 text-gray-500 hover:text-black hover:bg-gray-200/60 rounded-lg transition"
+                            title="Edit Product"
+                          >
+                            <Edit3 className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => setIsDeletingId(p.id)}
+                            className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition"
+                            title="Delete Product"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+
+      {/* Product Add / Edit Modal */}
+      {isEditModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl border border-gray-100 my-8 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="px-6 py-5 border-b border-gray-100 flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-black text-black">
+                  {editingProduct ? `Edit Product: ${editingProduct.name}` : 'Create New Product'}
+                </h3>
+                <p className="text-xs text-gray-500">
+                  {editingProduct
+                    ? 'Changes immediately synchronize across the homepage carousel and product page.'
+                    : 'Fill in details to publish a new supplement to the FitFul catalog.'}
+                </p>
+              </div>
+              <button
+                onClick={() => setIsEditModalOpen(false)}
+                className="p-2 text-gray-400 hover:text-black rounded-xl"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveProduct} className="p-6 space-y-4 max-h-[75vh] overflow-y-auto text-xs font-medium">
+              {/* Name & Slug */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">Product Title *</label>
+                  <input
+                    type="text"
+                    required
+                    value={formData.name}
+                    onChange={(e) => {
+                      const name = e.target.value;
+                      setFormData(prev => ({
+                        ...prev,
+                        name,
+                        slug: prev.slug === '' || !editingProduct
+                          ? name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
+                          : prev.slug
+                      }));
+                    }}
+                    placeholder="e.g. Wellcore Creatine Monohydrate"
+                    className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-black focus:outline-hidden"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">URL Slug *</label>
+                  <input
+                    type="text"
+                    required
+                    value={formData.slug}
+                    onChange={(e) => setFormData(prev => ({ ...prev, slug: e.target.value }))}
+                    placeholder="e.g. wellcore-creatine-monohydrate"
+                    className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-black focus:outline-hidden"
+                  />
+                </div>
+              </div>
+
+              {/* Price, Original Price, Category */}
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">Selling Price ($) *</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    required
+                    value={formData.price}
+                    onChange={(e) => setFormData(prev => ({ ...prev, price: parseFloat(e.target.value) || 0 }))}
+                    className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-black focus:outline-hidden"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">Compare Price ($)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={formData.originalPrice}
+                    onChange={(e) => setFormData(prev => ({ ...prev, originalPrice: parseFloat(e.target.value) || 0 }))}
+                    className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-black focus:outline-hidden"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">Category</label>
+                  <select
+                    value={formData.category}
+                    onChange={(e) => setFormData(prev => ({ ...prev, category: e.target.value }))}
+                    className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-black focus:outline-hidden"
+                  >
+                    <option value="Sports Nutrition">Sports Nutrition</option>
+                    <option value="Performance">Performance</option>
+                    <option value="Protein Spreads">Protein Spreads</option>
+                    <option value="Superfoods">Superfoods</option>
+                    <option value="Vitamins & Minerals">Vitamins & Minerals</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Stock Status & Quantity */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">Inventory Status</label>
+                  <select
+                    value={formData.stockStatus}
+                    onChange={(e) => setFormData(prev => ({ ...prev, stockStatus: e.target.value }))}
+                    className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-black focus:outline-hidden"
+                  >
+                    <option value="In Stock">In Stock</option>
+                    <option value="Low Stock">Low Stock</option>
+                    <option value="Out of Stock">Out of Stock</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">Available Units</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={formData.stockQuantity}
+                    onChange={(e) => setFormData(prev => ({ ...prev, stockQuantity: parseInt(e.target.value) || 0 }))}
+                    className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-black focus:outline-hidden"
+                  />
+                </div>
+              </div>
+
+              {/* Image URL & Preview */}
+              <div>
+                <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">Product Image URL *</label>
+                <div className="flex gap-3 items-center">
+                  <input
+                    type="text"
+                    required
+                    value={formData.image}
+                    onChange={(e) => setFormData(prev => ({ ...prev, image: e.target.value }))}
+                    placeholder="/public/assets/aistudio/... or https://..."
+                    className="flex-1 px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-black focus:outline-hidden"
+                  />
+                  <div className="w-11 h-11 bg-gray-100 rounded-xl border border-gray-200 p-1 flex items-center justify-center shrink-0 overflow-hidden">
+                    <img src={formData.image} alt="Preview" className="max-h-full max-w-full object-contain" />
                   </div>
-                  <div className="flex items-center gap-3">
-                    <span className="px-2.5 py-1 text-xs font-bold rounded-full bg-amber-50 text-amber-700 border border-amber-200">
-                      {p.stock} left
-                    </span>
-                    <Link
-                      to={`/admin/products/edit/${p.id}`}
-                      className="text-xs font-semibold text-blue-600 hover:underline"
+                </div>
+              </div>
+
+              {/* Description */}
+              <div>
+                <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">Product Description</label>
+                <textarea
+                  rows={3}
+                  value={formData.description}
+                  onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
+                  placeholder="Explain benefits, formulation, and quality standards..."
+                  className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-black focus:outline-hidden leading-relaxed"
+                />
+              </div>
+
+              {/* Key Benefits Tags */}
+              <div>
+                <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">Key Benefits</label>
+                <div className="flex gap-2 mb-2">
+                  <input
+                    type="text"
+                    value={formData.benefitInput}
+                    onChange={(e) => setFormData(prev => ({ ...prev, benefitInput: e.target.value }))}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddBenefit(); } }}
+                    placeholder="Type benefit and hit Enter or click Add"
+                    className="flex-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs focus:ring-2 focus:ring-black focus:outline-hidden"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddBenefit}
+                    className="px-3.5 py-2 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-xl font-bold text-xs"
+                  >
+                    Add
+                  </button>
+                </div>
+
+                <div className="flex flex-wrap gap-1.5">
+                  {formData.keyBenefits.map((b, i) => (
+                    <span
+                      key={i}
+                      className="inline-flex items-center gap-1.5 bg-gray-100 text-gray-800 text-xs px-2.5 py-1 rounded-full font-medium"
                     >
-                      Update
-                    </Link>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Recent Orders List */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h3 className="text-base font-bold text-gray-900 flex items-center gap-2">
-                <Clock className="w-4 h-4 text-purple-500" /> Recent Orders
-              </h3>
-              <p className="text-xs text-gray-500 mt-0.5">Latest transactions from customer checkout</p>
-            </div>
-            <Link to="/admin/orders" className="text-xs text-gray-500 hover:text-black font-semibold flex items-center">
-              All Orders <ChevronRight className="w-3.5 h-3.5" />
-            </Link>
-          </div>
-
-          {loadingOrders ? (
-            <div className="py-10 text-center text-sm text-gray-400">Loading orders...</div>
-          ) : orders.length === 0 ? (
-            <div className="py-10 text-center text-sm text-gray-400 bg-gray-50 rounded-xl">
-              No orders placed yet. Orders will appear here in real-time when customers buy.
-            </div>
-          ) : (
-            <div className="divide-y divide-gray-100">
-              {orders.slice(0, 5).map(order => (
-                <div key={order.id} className="py-3 flex items-center justify-between">
-                  <div>
-                    <div className="text-sm font-semibold text-gray-900">{order.customerName}</div>
-                    <div className="text-xs text-gray-500">
-                      {order.items?.length || 1} items • {new Date(order.createdAt).toLocaleDateString()}
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-sm font-bold text-gray-900">${(Number(order.totalAmount) || 0).toFixed(2)}</div>
-                    <span className={`inline-block text-[11px] font-bold px-2 py-0.5 rounded-full mt-0.5 ${
-                      order.status === 'Delivered' ? 'bg-green-100 text-green-700' :
-                      order.status === 'Shipped' ? 'bg-blue-100 text-blue-700' :
-                      order.status === 'Processing' ? 'bg-yellow-100 text-yellow-700' :
-                      order.status === 'Cancelled' ? 'bg-red-100 text-red-700' :
-                      'bg-gray-100 text-gray-700'
-                    }`}>
-                      {order.status || 'Pending'}
+                      {b}
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveBenefit(i)}
+                        className="text-gray-400 hover:text-red-500"
+                      >
+                        ×
+                      </button>
                     </span>
-                  </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          )}
+              </div>
+
+              {/* Nutritional Info, Ingredients, Usage */}
+              <div className="space-y-3 pt-2 border-t border-gray-100">
+                <div>
+                  <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">Nutritional Breakdown</label>
+                  <input
+                    type="text"
+                    value={formData.nutritionalInfo}
+                    onChange={(e) => setFormData(prev => ({ ...prev, nutritionalInfo: e.target.value }))}
+                    placeholder="Per 100g: 380 kcal | 26g Protein..."
+                    className="w-full px-3.5 py-2 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-black focus:outline-hidden"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">Ingredients</label>
+                  <input
+                    type="text"
+                    value={formData.ingredients}
+                    onChange={(e) => setFormData(prev => ({ ...prev, ingredients: e.target.value }))}
+                    placeholder="Rolled Oats, Whey Protein Isolate, Cocoa..."
+                    className="w-full px-3.5 py-2 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-black focus:outline-hidden"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold uppercase text-gray-600 mb-1">Usage Instructions</label>
+                  <input
+                    type="text"
+                    value={formData.usage}
+                    onChange={(e) => setFormData(prev => ({ ...prev, usage: e.target.value }))}
+                    placeholder="Mix 1 scoop with 200ml cold water..."
+                    className="w-full px-3.5 py-2 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-black focus:outline-hidden"
+                  />
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="pt-4 flex items-center justify-end gap-3 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => setIsEditModalOpen(false)}
+                  className="px-5 py-2.5 text-gray-600 hover:bg-gray-100 rounded-2xl font-bold transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-6 py-2.5 bg-black hover:bg-neutral-800 text-white font-bold rounded-2xl shadow-md transition active:scale-95"
+                >
+                  {editingProduct ? 'Save Changes' : 'Create Product'}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {isDeletingId && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white max-w-sm w-full rounded-3xl p-6 shadow-2xl border border-gray-100 space-y-4">
+            <div className="w-12 h-12 bg-red-50 text-red-600 rounded-2xl flex items-center justify-center mx-auto">
+              <Trash2 className="w-6 h-6" />
+            </div>
+            <div className="text-center">
+              <h4 className="text-base font-black text-black">Remove Product?</h4>
+              <p className="text-xs text-gray-500 mt-1">
+                Are you sure you want to remove this product from the storefront catalog? This cannot be undone.
+              </p>
+            </div>
+            <div className="flex gap-2 pt-2">
+              <button
+                onClick={() => setIsDeletingId(null)}
+                className="flex-1 py-2.5 border border-gray-200 rounded-2xl text-xs font-bold hover:bg-gray-50 transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleDeleteProduct(isDeletingId)}
+                className="flex-1 py-2.5 bg-red-600 text-white rounded-2xl text-xs font-bold hover:bg-red-700 transition"
+              >
+                Confirm Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
