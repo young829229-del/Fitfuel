@@ -2,70 +2,103 @@
   "entities": {
     "Product": {
       "title": "Product",
-      "description": "An ecommerce product",
+      "description": "An ecommerce product record",
       "type": "object",
       "properties": {
         "name": { "type": "string" },
+        "slug": { "type": "string" },
         "price": { "type": "number" },
         "discountPrice": { "type": "number" },
         "description": { "type": "string" },
-        "images": { "type": "array", "items": { "type": "string" } },
-        "slug": { "type": "string" },
+        "images": { "type": "array" },
         "stock": { "type": "number" },
+        "category": { "type": "string" },
+        "keyBenefits": { "type": "array" },
+        "ingredients": { "type": "string" },
+        "nutritionalInfo": { "type": "string" },
+        "usage": { "type": "string" },
+        "weightSize": { "type": "string" },
         "isFeatured": { "type": "boolean" },
-        "category": { "type": "string" }
+        "isUnavailable": { "type": "boolean" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
       },
-      "required": ["name", "price", "slug", "stock"]
-    },
-    "Order": {
-      "title": "Order",
-      "description": "A customer order",
-      "type": "object",
-      "properties": {
-        "customerName": { "type": "string" },
-        "email": { "type": "string" },
-        "items": { "type": "array" },
-        "total": { "type": "number" },
-        "status": { "type": "string" }
-      },
-      "required": ["customerName", "email", "items", "total", "status"]
+      "required": ["name", "slug", "price", "stock"]
     },
     "Banner": {
       "title": "Banner",
-      "description": "Homepage banner",
+      "description": "Storefront promotional banner",
       "type": "object",
       "properties": {
         "title": { "type": "string" },
         "subtitle": { "type": "string" },
+        "description": { "type": "string" },
         "image": { "type": "string" },
-        "link": { "type": "string" },
-        "isActive": { "type": "boolean" }
+        "buttonText": { "type": "string" },
+        "buttonLink": { "type": "string" },
+        "isActive": { "type": "boolean" },
+        "order": { "type": "number" },
+        "createdAt": { "type": "string" }
       },
-      "required": ["title", "image", "isActive"]
+      "required": ["title", "isActive"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "Store order placed by a customer",
+      "type": "object",
+      "properties": {
+        "customerName": { "type": "string" },
+        "customerEmail": { "type": "string" },
+        "customerPhone": { "type": "string" },
+        "shippingAddress": { "type": "string" },
+        "items": { "type": "array" },
+        "totalAmount": { "type": "number" },
+        "status": { "type": "string", "enum": ["Pending", "Processing", "Shipped", "Delivered", "Cancelled"] },
+        "paymentMethod": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["customerName", "customerEmail", "items", "totalAmount", "status"]
+    },
+    "HomepageSettings": {
+      "title": "HomepageSettings",
+      "description": "Homepage product section curation",
+      "type": "object",
+      "properties": {
+        "featuredProductIds": { "type": "array" },
+        "bestSellerIds": { "type": "array" },
+        "newArrivalIds": { "type": "array" },
+        "recommendedIds": { "type": "array" },
+        "updatedAt": { "type": "string" }
+      }
     },
     "User": {
       "title": "User",
-      "description": "An application user",
+      "description": "Store user account",
       "type": "object",
       "properties": {
         "email": { "type": "string" },
-        "role": { "type": "string" }
+        "role": { "type": "string" },
+        "displayName": { "type": "string" }
       },
-      "required": ["email", "role"]
+      "required": ["email"]
     }
   },
   "firestore": {
     "/products/{productId}": {
       "schema": { "$ref": "#/entities/Product" },
-      "description": "Product catalog"
-    },
-    "/orders/{orderId}": {
-      "schema": { "$ref": "#/entities/Order" },
-      "description": "Customer orders"
+      "description": "Product catalog documents"
     },
     "/banners/{bannerId}": {
       "schema": { "$ref": "#/entities/Banner" },
-      "description": "Homepage banners"
+      "description": "Promotional banners"
+    },
+    "/orders/{orderId}": {
+      "schema": { "$ref": "#/entities/Order" },
+      "description": "Customer purchase orders"
+    },
+    "/settings/{settingId}": {
+      "schema": { "$ref": "#/entities/HomepageSettings" },
+      "description": "Store display configurations"
     },
     "/users/{userId}": {
       "schema": { "$ref": "#/entities/User" },
